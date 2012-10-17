@@ -4,13 +4,14 @@ import java.awt.image.BufferedImage
 import java.awt.Graphics2D
 import java.awt.RenderingHints
 import java.awt.Color
+import java.awt.Font
 import javax.imageio.ImageIO
 
 import java.io.File
 
 object LevelGenerator extends App {
 
-  for( i <- 0 until 30 ) {
+  for( i <- 0 until 1 ) {
     val graph = new OverviewGraph(i)
     println("Drawing Graph %3d..." format i)
     (new File("out")).mkdirs()
@@ -81,7 +82,7 @@ class OverviewGraph(seed:Long) {
   private val rng = new util.Random(seed)
   
   case class Node(x:Int, y:Int) {
-    var difficulty:Int = 0
+    var id:Int = 0
     def neighbours = ways.filter(_ contains this).map(_ otherNode this)
     def degree = neighbours.size
     def point = Vec2(x,y)
@@ -188,44 +189,64 @@ class OverviewGraph(seed:Long) {
   
   
   def drawToImage(filename:String) {
+    val backgroundColor = new Color(0xEEEEEE)
+    val dungeonColor = new Color(0xCCCCCC)
+    val startColor = new Color(0x00A020)
+    val wayColor = new Color(0x999999)
+    val contourColor = new Color(0x666666)
+    val textColor = new Color(0x333333)
+    val textFont = new Font("Sans", Font.BOLD, 20)
+
     val image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
     val g:Graphics2D = image.createGraphics
     import g._
     setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                      RenderingHints.VALUE_ANTIALIAS_ON)
     setStroke(new java.awt.BasicStroke(3))
+    setFont(textFont)
+    val frc = getFontRenderContext
+    def stringBounds(s:String) = {
+      val bounds = textFont.getStringBounds(s, frc)
+      val metrics = textFont.getLineMetrics(s, frc)
+      Vec2(bounds.getWidth, metrics.getHeight)
+    }
+
+    def fillCircle(x:Int, y:Int, diameter:Int) = fillOval(x-diameter/2, y-diameter/2, diameter, diameter)
+    def drawCircle(x:Int, y:Int, diameter:Int) = drawOval(x-diameter/2, y-diameter/2, diameter, diameter)
+    def drawNode(node:Node, color:Color) = {
+      setColor(color)
+      fillCircle(node.x, node.y, nodeDiameter)
+      setColor(contourColor)
+      drawCircle(node.x, node.y, nodeDiameter)
+      
+      setColor(textColor)
+      val string = "12" //node.id.toString
+      val bounds = stringBounds(string)
+      drawString(string, (node.x - bounds.x/2).toInt, (node.y + bounds.y / 2).toInt)
+    }
     
-    val backgroundColor = new Color(0xEEEEEE)
-    val dungeonColor = new Color(0xCCCCCC)
-    val startColor = new Color(0x00A020)
-    val wayColor = new Color(0x999999)
-    val contourColor = new Color(0x666666)
+    def drawEdge(edge:Edge, color:Color) {
+      setColor(color)
+      drawLine(edge.nA.x, edge.nA.y, edge.nB.x, edge.nB.y)
+    }
     
 
     setBackground(backgroundColor)
     clearRect(0,0,width,height)
     
     for( way <- ways ) {
-      if( ways.exists(_.intersects(way)) || 
+/*      if( ways.exists(_.intersects(way)) || 
           dungeons.filterNot(d => d == way.nA || d == way.nB).exists{d => way.line.distance(d.point) < Config.minLineNodeDistance}
        )
-        setColor(new Color(0xFF0000))
-      else
-        setColor(wayColor)
-      drawLine(way.nA.x, way.nA.y, way.nB.x, way.nB.y)
+        drawEdge(way, new Color(0xFF0000))
+      else*/
+        drawEdge(way, wayColor)
     }
 
-    for( dungeon <- dungeons ) {
-      setColor(dungeonColor)
-      fillOval(dungeon.x-nodeDiameter/2, dungeon.y-nodeDiameter/2, nodeDiameter, nodeDiameter)
-      setColor(contourColor)
-      drawOval(dungeon.x-nodeDiameter/2, dungeon.y-nodeDiameter/2, nodeDiameter, nodeDiameter)
-    }
+    for( dungeon <- dungeons )
+      drawNode(dungeon,dungeonColor)
     
-    setColor(startColor)
-    fillOval(startDungeon.x-nodeDiameter/2, startDungeon.y-nodeDiameter/2, nodeDiameter, nodeDiameter)
-    setColor(contourColor)
-    drawOval(startDungeon.x-nodeDiameter/2, startDungeon.y-nodeDiameter/2, nodeDiameter, nodeDiameter)
+    drawNode(startDungeon, startColor)
     
     
     val outputfile = new File(filename)
