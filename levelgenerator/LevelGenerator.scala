@@ -162,7 +162,8 @@ class Dungeon(seed:Any) {
   }
   
   val startBranch = randomBranch // choose branch with highest degree?
-  
+
+
   // Connections (minimum spanning tree on complete graph)
   var L = branches.combinations(2).collect{ case List(a,b) => BranchConnection(a,b) }.toList.sortBy{ case BranchConnection(a,b) => branchDistance(a,b) }
   while(L.nonEmpty) {
@@ -178,12 +179,12 @@ class Dungeon(seed:Any) {
     val d1 = branch
     val close = branches.sortBy(d => branchDistance(d1,d)).tail zip edgeProbabilities
     val d2s = close.filter(rDouble <= _._2).map(_._1)
-    for( (way,d2) <- d2s.map(d2 => (BranchConnection(d1,d2),d2)) ) {
-      if( !connections.exists(_.intersects(way) ) &&
-        !branches.filterNot(d => d == way.nA || d == way.nB).exists{d => way.line.distance(d.point) < Config.minLineBranchDistance} &&
+    for( (connection,d2) <- d2s.map(d2 => (BranchConnection(d1,d2),d2)) ) {
+      if( !connections.exists(_.intersects(connection) ) &&
+        !branches.filterNot(d => d == connection.nA || d == connection.nB).exists{d => connection.line.distance(d.point) < Config.minLineBranchDistance} &&
         d1.degree <= maxDegree && d2.degree <= maxDegree
        )
-        connections ::= way
+        connections ::= connection
     }
   }
   
@@ -201,7 +202,7 @@ class Dungeon(seed:Any) {
     val backgroundColor = new Color(0xEEEEEE)
     val branchColor = new Color(0xCCCCCC)
     val startColor = new Color(0x00A020)
-    val wayColor = new Color(0x999999)
+    val connectionColor = new Color(0x999999)
     val contourColor = new Color(0x666666)
     val textColor = new Color(0x333333)
     val textFont = new Font("Sans", Font.BOLD, 20)
@@ -243,14 +244,15 @@ class Dungeon(seed:Any) {
     setBackground(backgroundColor)
     clearRect(0,0,width,height)
     
-    for( way <- connections ) {
-/*      if( connections.exists(_.intersects(way)) || 
-          branches.filterNot(d => d == way.nA || d == way.nB).exists{d => way.line.distance(d.point) < Config.minLineBranchDistance}
+    for( connection <- connections ) {
+/*      if( connections.exists(_.intersects(connection)) || 
+          branches.filterNot(d => d == connection.nA || d == connection.nB).exists{d => connection.line.distance(d.point) < Config.minLineBranchDistance}
        )
-        drawBranchConnection(way, new Color(0xFF0000))
+        drawBranchConnection(connection, new Color(0xFF0000))
       else*/
-        drawBranchConnection(way, wayColor)
+        drawBranchConnection(connection, connectionColor)
     }
+
 
     for( branch <- branches )
       drawBranch(branch,branchColor)
