@@ -11,8 +11,8 @@ import java.io.File
 
 object LevelGenerator extends App {
 
-  for( i <- 0 until 1 ) {
-    val graph = new OverviewGraph(i)
+  for( i <- 0 until 30 ) {
+    val graph = new Dungeon(i)
     println("Drawing Graph %3d..." format i)
     (new File("out")).mkdirs()
     graph.drawToImage("out/test%03d.png" format i)
@@ -25,13 +25,13 @@ object LevelGenerator extends App {
 object Config {
   val width = 500
   val height = 500
-  val dungeonCount = 15
+  val branchCount = 15
   val maxDegree = 4
   val minDistance = 90
-  val edgeProbabilities = Array(0.8,0.5,0.2)
-  val minLineNodeDistance = 60 //TODO: statt Pixelabstand, den Winkel vom erzeugten Dreieck limitieren
+  val edgeProbabilities = Array(0.9,0.6,0.3)
+  val minLineBranchDistance = 60 //TODO: statt Pixelabstand, den Winkel vom erzeugten Dreieck limitieren
   
-  val nodeDiameter = 40
+  val branchDiameter = 40
 }
 
 case class Vec2(x:Double, y:Double) {
@@ -75,38 +75,39 @@ case class Line(start:Vec2, end:Vec2) {
   }
 }
 
-class OverviewGraph(seed:Long) {
+class Dungeon(seed:Any) {
   import Config._
   import math._
   
-  private val rng = new util.Random(seed)
+  private val rng = new util.Random(seed.hashCode)
   
-  case class Node(x:Int, y:Int) {
+  case class Branch(x:Int, y:Int, seed:Int) {
     var id:Int = 0
-    def neighbours = ways.filter(_ contains this).map(_ otherNode this)
+    def neighbours = connections.filter(_ contains this).map(_ otherBranch this)
     def degree = neighbours.size
     def point = Vec2(x,y)
   }
 
-  case class Edge(nA:Node, nB:Node) {
-    def contains(n:Node) = (n == nA || n == nB)
-    def otherNode(n:Node) = { require(contains(n)); if( n == nA) nB else nA }
+  case class BranchConnection(nA:Branch, nB:Branch) {
+    def contains(n:Branch) = (n == nA || n == nB)
+    def otherBranch(n:Branch) = { require(contains(n)); if( n == nA) nB else nA }
     def line = Line(Vec2(nA.x, nA.y), Vec2(nB.x, nB.y))
-    def intersects(that:Edge) = this.line intersects that.line
+    def intersects(that:BranchConnection) = this.line intersects that.line
   }
   
-  var ways:List[Edge] = Nil
-  var dependencies:List[Edge] = Nil
+  var branches:List[Branch] = Nil
+  var connections:List[BranchConnection] = Nil
+//  var dependencies:List[BranchConnection] = Nil
   
   private def rInt = rng.nextInt & Int.MaxValue
   private def rDouble = rng.nextDouble
   
-  def randomDungeon = dungeons(rInt % dungeons.size)
-  def nodeDistance(n1:Node, n2:Node) = sqrt(pow(n1.x-n2.x,2)+pow(n1.y-n2.y,2))
+  def randomBranch = branches(rInt % branches.size)
+  def branchDistance(n1:Branch, n2:Branch) = sqrt(pow(n1.x-n2.x,2)+pow(n1.y-n2.y,2))
 
   def isConnected = {
-    var visited:List[Node] = Nil
-    var next = dungeons.take(1)
+    var visited:List[Branch] = Nil
+    var next = branches.take(1)
     while( next.nonEmpty ) {
       val current = next.head
       next = next.tail
@@ -115,18 +116,18 @@ class OverviewGraph(seed:Long) {
         next :::= current.neighbours
       }
     }
-    visited.size == dungeons.size
+    visited.size == branches.size
   }
   
   def hasCycle = {
-    var visited:List[Node] = Nil
-    var finished:List[Node] = Nil
+    var visited:List[Branch] = Nil
+    var finished:List[Branch] = Nil
     var foundCycle = false
-    for( node <- dungeons ) {
-      dfs(node, node)
+    for( branch <- branches ) {
+      dfs(branch, branch)
     }
     
-    def dfs(v:Node, source:Node) {
+    def dfs(v:Branch, source:Branch) {
       if(finished contains v)
         return
       if((visited contains v)) {
@@ -143,54 +144,62 @@ class OverviewGraph(seed:Long) {
   }
 
   
-  // Knoten 
-  var dungeons:List[Node] = Nil
-  for( i <- 0 until dungeonCount ) {
-    var newNode:Node = null
+  // Branches 
+  for( i <- 0 until branchCount ) {
+    var newBranch:Branch = null
     do {
-      newNode = Node(rInt % width, rInt % height)
+      newBranch = Branch(rInt % width, rInt % height, seed=rInt)
     } while(
-      dungeons.exists(d =>
-        nodeDistance(d, newNode) < minDistance
+      branches.exists(d =>
+        branchDistance(d, newBranch) < minDistance
         ) ||
-      newNode.x-nodeDiameter/2 < 0 ||
-      newNode.x+nodeDiameter/2 > width ||
-      newNode.y-nodeDiameter/2 < 0 ||
-      newNode.y+nodeDiameter/2 > height
+      newBranch.x-branchDiameter/2 < 0 ||
+      newBranch.x+branchDiameter/2 > width ||
+      newBranch.y-branchDiameter/2 < 0 ||
+      newBranch.y+branchDiameter/2 > height
     )
-    dungeons ::= newNode
+    branches ::= newBranch
   }
   
-  val startDungeon = randomDungeon
+  val startBranch = randomBranch // choose branch with highest degree?
   
-  // Kanten (minimaler Spannbaum auf vollständigem Graph)
-  var L = dungeons.combinations(2).collect{ case List(a,b) => Edge(a,b) }.toList.sortBy{ case Edge(a,b) => nodeDistance(a,b) }
+  // Connections (minimum spanning tree on complete graph)
+  var L = branches.combinations(2).collect{ case List(a,b) => BranchConnection(a,b) }.toList.sortBy{ case BranchConnection(a,b) => branchDistance(a,b) }
   while(L.nonEmpty) {
     val e = L.head
     L = L.tail
-    ways ::= e
+    connections ::= e
     if(hasCycle)
-      ways = ways.tail
+      connections = connections.tail
   }
   
-  // Weitere Kanten
-  for( node <- dungeons ) {
-    val d1 = node
-    val close = dungeons.sortBy(d => nodeDistance(d1,d)).tail zip edgeProbabilities
+  // More Connections (usually creating cycles and have restrictions)
+  for( branch <- branches ) {
+    val d1 = branch
+    val close = branches.sortBy(d => branchDistance(d1,d)).tail zip edgeProbabilities
     val d2s = close.filter(rDouble <= _._2).map(_._1)
-    for( (way,d2) <- d2s.map(d2 => (Edge(d1,d2),d2)) ) {
-      if( !ways.exists(_.intersects(way) ) &&
-        !dungeons.filterNot(d => d == way.nA || d == way.nB).exists{d => way.line.distance(d.point) < Config.minLineNodeDistance} &&
+    for( (way,d2) <- d2s.map(d2 => (BranchConnection(d1,d2),d2)) ) {
+      if( !connections.exists(_.intersects(way) ) &&
+        !branches.filterNot(d => d == way.nA || d == way.nB).exists{d => way.line.distance(d.point) < Config.minLineBranchDistance} &&
         d1.degree <= maxDegree && d2.degree <= maxDegree
        )
-        ways ::= way
+        connections ::= way
     }
   }
+  
+  // Game path (choose the closest one possible)
+  var gamePath:List[Branch] = List(startBranch)
+  while( gamePath.size < branches.size ) {
+    val candidates = gamePath.flatMap(_.neighbours).distinct.diff(gamePath)
+    gamePath ::= candidates.minBy(n => branchDistance(n,gamePath.head))
+  }
+  for( (branch,i) <- gamePath.reverse zipWithIndex )
+    branch.id = i
   
   
   def drawToImage(filename:String) {
     val backgroundColor = new Color(0xEEEEEE)
-    val dungeonColor = new Color(0xCCCCCC)
+    val branchColor = new Color(0xCCCCCC)
     val startColor = new Color(0x00A020)
     val wayColor = new Color(0x999999)
     val contourColor = new Color(0x666666)
@@ -213,19 +222,19 @@ class OverviewGraph(seed:Long) {
 
     def fillCircle(x:Int, y:Int, diameter:Int) = fillOval(x-diameter/2, y-diameter/2, diameter, diameter)
     def drawCircle(x:Int, y:Int, diameter:Int) = drawOval(x-diameter/2, y-diameter/2, diameter, diameter)
-    def drawNode(node:Node, color:Color) = {
+    def drawBranch(branch:Branch, color:Color) = {
       setColor(color)
-      fillCircle(node.x, node.y, nodeDiameter)
+      fillCircle(branch.x, branch.y, branchDiameter)
       setColor(contourColor)
-      drawCircle(node.x, node.y, nodeDiameter)
+      drawCircle(branch.x, branch.y, branchDiameter)
       
       setColor(textColor)
-      val string = "12" //node.id.toString
+      val string = branch.id.toString
       val bounds = stringBounds(string)
-      drawString(string, (node.x - bounds.x/2).toInt, (node.y + bounds.y / 2).toInt)
+      drawString(string, (branch.x - bounds.x/2).toInt, (branch.y + bounds.y / 2).toInt)
     }
     
-    def drawEdge(edge:Edge, color:Color) {
+    def drawBranchConnection(edge:BranchConnection, color:Color) {
       setColor(color)
       drawLine(edge.nA.x, edge.nA.y, edge.nB.x, edge.nB.y)
     }
@@ -234,19 +243,19 @@ class OverviewGraph(seed:Long) {
     setBackground(backgroundColor)
     clearRect(0,0,width,height)
     
-    for( way <- ways ) {
-/*      if( ways.exists(_.intersects(way)) || 
-          dungeons.filterNot(d => d == way.nA || d == way.nB).exists{d => way.line.distance(d.point) < Config.minLineNodeDistance}
+    for( way <- connections ) {
+/*      if( connections.exists(_.intersects(way)) || 
+          branches.filterNot(d => d == way.nA || d == way.nB).exists{d => way.line.distance(d.point) < Config.minLineBranchDistance}
        )
-        drawEdge(way, new Color(0xFF0000))
+        drawBranchConnection(way, new Color(0xFF0000))
       else*/
-        drawEdge(way, wayColor)
+        drawBranchConnection(way, wayColor)
     }
 
-    for( dungeon <- dungeons )
-      drawNode(dungeon,dungeonColor)
+    for( branch <- branches )
+      drawBranch(branch,branchColor)
     
-    drawNode(startDungeon, startColor)
+    drawBranch(startBranch, startColor)
     
     
     val outputfile = new File(filename)
