@@ -11,7 +11,7 @@ import java.io.File
 
 object LevelGenerator extends App {
 
-  for( i <- 0 until 30 ) {
+  for( i <- 0 until 1 ) {
     val graph = new Dungeon(i)
     println("Drawing Graph %3d..." format i)
     (new File("out")).mkdirs()
@@ -56,6 +56,8 @@ case class Line(start:Vec2, end:Vec2) {
     if( d == 0 ) None
     else Some( ((that.end - this.start) dot that.normal)/d )
   }
+  
+  def ccw(p:Vec2) = (start.x - p.x) * (end.y - p.y) - (start.y - p.y) * (end.x - p.x) > 0
 
   def intersects(that:Line) = {
     (this.intersection(that), that.intersection(this)) match {
@@ -83,9 +85,11 @@ class Dungeon(seed:Any) {
   
   case class Branch(x:Int, y:Int, seed:Int) {
     var id:Int = 0
-    def neighbours = connections.filter(_ contains this).map(_ otherBranch this)
+    def neighbours:List[Branch] = neighbours(connections)
+    def neighbours(edges:List[BranchConnection] = connections) = edges.filter(_ contains this).map(_ otherBranch this).distinct
     def degree = neighbours.size
     def point = Vec2(x,y)
+    override def toString = "Branch(%d)" format id
   }
 
   case class BranchConnection(nA:Branch, nB:Branch) {
@@ -143,12 +147,96 @@ class Dungeon(seed:Any) {
     foundCycle
   }
 
+
+  def delaunayEdges = {
+    var edges:List[BranchConnection] = Nil
+    // initial triangle mesh
+    for( branch <- branches ) {
+      val closest = branches.sortBy(other => branchDistance(branch, other)).tail
+      val candidates = closest.map( other => BranchConnection(branch, other) )
+      edges :::= candidates.filterNot( c => edges.exists(_ == c) || edges.exists(_.intersects(c) ) )
+    }
+    
+    object Triangle {
+      def apply(branches:List[Branch]) = {
+        branches.sortBy(_.id) match {
+          case List(a,b,c) =>
+            if(Line(a.point, b.point) ccw c.point)
+              new Triangle(a,b,c)
+            else
+              new Triangle(a,c,b)
+        }
+      }
+    }
+    case class Triangle(nA:Branch, nB:Branch, nC:Branch) {
+      require(nA != nB && nB != nC && nC != nA, "Two points are the same: %s %s %s" format(nA, nB, nC))
+      require(nA.id < nB.id && nA.id < nC.id, "Lowest Id needs to be first: %d %d %d" format(nA.id, nB.id, nC.id))
+      require(Line(nA.point, nB.point).ccw(nC.point) &&
+              Line(nB.point, nC.point).ccw(nA.point) &&
+              Line(nC.point, nA.point).ccw(nB.point), "Points not in ccw order: %s %s %s" format(nA, nB, nC) )
+      def vertices = List(nA,nB,nC)
+      def connectedTo(that:Triangle) = (this.vertices intersect that.vertices).size == 2
+      def angleAt(n:Branch) = {
+        if( n == nA ) angle(nC, nA, nB)
+        else if( n == nB ) angle(nA, nB, nC)
+        else angle(nB, nC, nA)
+      }
+      def angle(n1:Branch,n2:Branch,n3:Branch) = {
+        val a = n1.point - n2.point
+        val b = n3.point - n2.point
+        acos( (a dot b) / (a.length * b.length) )
+      }
+      def contains(p:Branch) = {
+        Line(nA.point, nB.point).ccw(p.point) &&
+        Line(nB.point, nC.point).ccw(p.point) &&
+        Line(nC.point, nA.point).ccw(p.point)
+      }
+    }
+    
+    // iterate over all connected triangles
+    def getNext:List[List[Triangle]] = {
+      val triangles = branches.flatMap(nA => nA.neighbours(edges).combinations(2).filter{
+        case List(nB,nC) => edges.exists(c => (c contains nB) && (c contains nC)) }.map{
+        case List(nB,nC) => Triangle(List(nA,nB,nC))
+      }).distinct.filterNot(t => branches.exists(t contains _))
+      
+      println(triangles.mkString("\n"))
+      
+      val connectedTriangles = triangles.combinations(2).filter{
+        case List(tA,tB) => tA connectedTo tB
+      }
+      val notMeetingDelaunayCondition = connectedTriangles.filter{
+        case List(tA,tB) =>
+          val sharedVertices = tA.vertices intersect tB.vertices
+          val angleA = tA.angleAt((tA.vertices diff sharedVertices).head)
+          val angleB = tB.angleAt((tB.vertices diff sharedVertices).head)
+          angleA + angleB > Pi
+      }
+      
+      notMeetingDelaunayCondition.toList
+    }
+    var next:List[List[Triangle]] = null
+    while( {next = getNext;next.nonEmpty} ) {
+      println(next.size)
+      val List(tA,tB) = next.head
+      val sharedVertices = tA.vertices intersect tB.vertices
+      val notSharedVertices = (tA.vertices union tB.vertices).distinct diff sharedVertices
+      edges = edges.remove{case BranchConnection(nA, nB) => (sharedVertices contains nA) && (sharedVertices contains nB) }
+      edges ::= BranchConnection(notSharedVertices(0), notSharedVertices(1))
+      next = getNext
+    }
+    
+    edges
+  }
+  
+
   
   // Branches 
   for( i <- 0 until branchCount ) {
     var newBranch:Branch = null
     do {
       newBranch = Branch(rInt % width, rInt % height, seed=rInt)
+      newBranch.id = i
     } while(
       branches.exists(d =>
         branchDistance(d, newBranch) < minDistance
@@ -162,6 +250,12 @@ class Dungeon(seed:Any) {
   }
   
   val startBranch = randomBranch // choose branch with highest degree?
+
+  val delaunay = delaunayEdges
+
+
+
+
 
 
   // Connections (minimum spanning tree on complete graph)
@@ -189,13 +283,13 @@ class Dungeon(seed:Any) {
   }
   
   // Game path (choose the closest one possible)
-  var gamePath:List[Branch] = List(startBranch)
+  /*var gamePath:List[Branch] = List(startBranch)
   while( gamePath.size < branches.size ) {
     val candidates = gamePath.flatMap(_.neighbours).distinct.diff(gamePath)
     gamePath ::= candidates.minBy(n => branchDistance(n,gamePath.head))
   }
   for( (branch,i) <- gamePath.reverse zipWithIndex )
-    branch.id = i
+    branch.id = i*/
   
   
   def drawToImage(filename:String) {
@@ -252,6 +346,9 @@ class Dungeon(seed:Any) {
       else*/
         drawBranchConnection(connection, connectionColor)
     }
+
+    for( connection <- delaunay )
+        drawBranchConnection(connection, new Color(0xAA6622))
 
 
     for( branch <- branches )
