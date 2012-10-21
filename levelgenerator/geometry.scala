@@ -35,7 +35,7 @@ case class Line(start:Vec2, end:Vec2) {
   
   def ccw(p:Vec2) = (start.x - p.x) * (end.y - p.y) - (start.y - p.y) * (end.x - p.x) > 0
 
-  def sectionIntersects(that:Line) = {
+  def segmentIntersects(that:Line) = {
     (this.intersection(that), that.intersection(this)) match {
       case (Some(s),Some(t)) =>
         0 < t && t < 1 && 0 < s && s < 1
@@ -43,7 +43,7 @@ case class Line(start:Vec2, end:Vec2) {
     }
   }
   
-  def sectionDistance(p:Vec2) = {
+  def segentDistance(p:Vec2) = {
     val v = dir.normalized
     val t = (p-start) dot v
     if( 0 < t && t < length )

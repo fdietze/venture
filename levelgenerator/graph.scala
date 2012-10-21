@@ -61,17 +61,17 @@ trait Triangle {
   def c:Vertex
 }
 
-case class EuclideanVertex(point:geometry.Vec2) extends Vertex with Ordered[EuclideanVertex] {
+class EuclideanVertex(val point:geometry.Vec2) extends Vertex with Ordered[EuclideanVertex] {
   import geometry._
   def compare(that:EuclideanVertex) = this.point compare that.point
   def distance(that:EuclideanVertex) = Line(this.point, that.point).length
   override def neighbours(edges:List[Edge]) = super.neighbours(edges).asInstanceOf[List[EuclideanVertex]]
 }
 
-case class EuclideanEdge(vA:EuclideanVertex, vB:EuclideanVertex) extends Edge {
+class EuclideanEdge(val vA:EuclideanVertex, val vB:EuclideanVertex) extends Edge {
   import geometry._
   def line = Line(vA.point, vB.point)
-  def intersects(that:EuclideanEdge) = this.line sectionIntersects that.line
+  def intersects(that:EuclideanEdge) = this.line segmentIntersects that.line
 }
 
 object EuclideanTriangle {
@@ -101,7 +101,7 @@ trait EuclideanGraph extends Graph {
     // https://de.wikipedia.org/wiki/Algorithmus_von_Kruskal#Algorithmus
     var edges:List[EuclideanEdge] = Nil
     //TODO: use delaunayEdges instead of complete graph
-    var L = vertices.combinations(2).collect{ case List(a,b) => EuclideanEdge(a,b) }.toList.sortBy( _.line.length )
+    var L = vertices.combinations(2).collect{ case List(a,b) => new EuclideanEdge(a,b) }.toList.sortBy( _.line.length )
     while(L.nonEmpty) {
       val e = L.head
       L = L.tail
@@ -109,6 +109,7 @@ trait EuclideanGraph extends Graph {
       if(hasCycle(edges))
         edges = edges.tail
     }
+    edges
   }
   
   def delaunayEdges = {
@@ -116,7 +117,7 @@ trait EuclideanGraph extends Graph {
     // initial triangle mesh
     for( vertex<- vertices ) {
       val closest = vertices.sortBy(_ distance vertex).tail
-      val candidates = closest.map( EuclideanEdge(vertex, _) )
+      val candidates = closest.map( new EuclideanEdge(vertex, _) )
       edges :::= candidates.filterNot( e => edges.exists(_ == e) || edges.exists(_ intersects e ) )
     }
     
@@ -148,8 +149,8 @@ trait EuclideanGraph extends Graph {
       val List(tA,tB) = next.head
       val sharedVertices = tA.vertices intersect tB.vertices
       val notSharedVertices = (tA.vertices union tB.vertices).distinct diff sharedVertices
-      edges = edges.filterNot{case EuclideanEdge(nA, nB) => (sharedVertices contains nA) && (sharedVertices contains nB) }
-      edges ::= EuclideanEdge(notSharedVertices(0), notSharedVertices(1))
+      edges = edges.filterNot( e => (sharedVertices contains e.vA) && (sharedVertices contains e.vB) )
+      edges ::= new EuclideanEdge(notSharedVertices(0), notSharedVertices(1))
       next = getNext
     }
     
