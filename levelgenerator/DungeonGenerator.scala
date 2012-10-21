@@ -1,4 +1,4 @@
-package venture
+package venture.dungeonGenerator
 
 import java.awt.image.BufferedImage
 import java.awt.Graphics2D
@@ -7,21 +7,8 @@ import java.awt.Color
 import java.awt.Font
 import javax.imageio.ImageIO
 
-import java.io.File
 import graph._
 import geometry._
-
-object LevelGenerator extends App {
-
-  for (i <- 0 until 10) {
-    println("Drawing Graph %3d..." format i)
-    val graph = new Dungeon(i)
-    (new File("out")).mkdirs()
-    graph.drawToImage("out/test%03d.png" format i)
-  }
-
-  println("done")
-}
 
 object Config {
   val width = 500
@@ -42,7 +29,7 @@ case class Branch(_point: Vec2, seed: Int) extends EuclideanVertex(_point) {
   override def toString = "Branch(%d)" format id
 }
 
-case class BranchConnection(nA: Branch, nB: Branch) extends EuclideanEdge(nA,nB)
+case class BranchConnection(nA: Branch, nB: Branch) extends EuclideanEdge(nA, nB)
 
 class Dungeon(seed: Any) extends EuclideanGraph {
   import Config._
@@ -58,7 +45,7 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 
   def randomBranch = branches(rInt % branches.size)
 
-  // Branches 
+  // Branch positions 
   for (i <- 0 until branchCount) {
     var newBranch: Branch = null
     do {
@@ -74,8 +61,6 @@ class Dungeon(seed: Any) extends EuclideanGraph {
   }
 
   val startBranch = randomBranch // choose branch with highest degree?
-
-  val delaunay:List[BranchConnection] = delaunayEdges map (x => BranchConnection(x.vA.asInstanceOf[Branch], x.vB.asInstanceOf[Branch]))
 
   // Connections (minimum spanning tree on complete graph)
   connections = minimumSpanningTree map (x => BranchConnection(x.vA.asInstanceOf[Branch], x.vB.asInstanceOf[Branch]))
@@ -94,15 +79,17 @@ class Dungeon(seed: Any) extends EuclideanGraph {
   }
 
   // Game path (choose the closest one possible)
-  /*var gamePath:List[Branch] = List(startBranch)
-  while( gamePath.size < branches.size ) {
-    val candidates = gamePath.flatMap(_.neighbours).distinct.diff(gamePath)
-    gamePath ::= candidates.minBy(n => branchDistance(n,gamePath.head))
+  var gamePath: List[Branch] = List(startBranch)
+  while (gamePath.size < branches.size) {
+    val candidates = gamePath.flatMap(_.neighbours(connections)).distinct.diff(gamePath).asInstanceOf[List[Branch]]
+    gamePath ::= candidates.minBy(_ distance gamePath.head)
   }
-  for( (branch,i) <- gamePath.reverse zipWithIndex )
-    branch.id = i*/
+  for ((branch, i) <- gamePath.reverse zipWithIndex)
+    branch.id = i
 
   def drawToImage(filename: String) {
+    import java.io.File
+
     val backgroundColor = new Color(0xEEEEEE)
     val branchColor = new Color(0xCCCCCC)
     val startColor = new Color(0x00A020)
@@ -148,16 +135,8 @@ class Dungeon(seed: Any) extends EuclideanGraph {
     clearRect(0, 0, width, height)
 
     for (connection <- connections) {
-      /*      if( connections.exists(_.intersects(connection)) || 
-          branches.filterNot(d => d == connection.nA || d == connection.nB).exists{d => connection.line.distance(d.point) < Config.minLineBranchDistance}
-       )
-        drawBranchConnection(connection, new Color(0xFF0000))
-      else*/
       drawBranchConnection(connection, connectionColor)
     }
-
-    //for (connection <- delaunay)
-    //  drawBranchConnection(connection, new Color(0xAA6622))
 
     for (branch <- branches)
       drawBranch(branch, branchColor)
