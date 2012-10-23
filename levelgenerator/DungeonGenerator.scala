@@ -10,21 +10,26 @@ import javax.imageio.ImageIO
 import graph._
 import geometry._
 
+import venture.branchtypes._
+
 object Config {
-  val width = 500
-  val height = 500
-  val branchCount = 15
+  val width = 800
+  val height = 600
+  val branchCount = 15 //TODO: muss bei zu hoher Zahl trotzdem terminieren
   val maxDegree = 4
   val minDistance = 90
+  val minBorderDistance = minDistance / 2
   val edgeProbabilities = Array(0.9, 0.6, 0.3)
-  val minLineBranchDistance = 60 //TODO: statt Pixelabstand, den Winkel vom erzeugten Dreieck limitieren
-
-  val branchDiameter = 40
+  val minLineBranchDistance = 90 //TODO: statt Pixelabstand, den Winkel vom erzeugten Dreieck limitieren
+  
+  val skyGroundSeparator = 0.33
+  val groundUndergroundSeparator = 0.66
 }
 
 case class Branch(_point: Vec2, seed: Int) extends EuclideanVertex(_point) {
   def x = point.x.toInt
   def y = point.y.toInt
+  var branchType:BranchType = null
   var id: Int = 0
   override def toString = "Branch(%d)" format id
 }
@@ -51,14 +56,26 @@ class Dungeon(seed: Any) extends EuclideanGraph {
     do {
       newBranch = Branch(Vec2(rInt % width, rInt % height), seed = rInt)
       newBranch.id = i
-    } while (branches.exists(d =>
-      (d distance newBranch) < minDistance) ||
-      newBranch.x - branchDiameter / 2 < 0 ||
-      newBranch.x + branchDiameter / 2 > width ||
-      newBranch.y - branchDiameter / 2 < 0 ||
-      newBranch.y + branchDiameter / 2 > height)
+    } while (
+    	branches.exists(d => (d distance newBranch) < minDistance) ||
+      newBranch.x - minBorderDistance < 0 ||
+      newBranch.x + minBorderDistance > width ||
+      newBranch.y - minBorderDistance < 0 ||
+      newBranch.y + minBorderDistance > height)
     branches ::= newBranch
   }
+  
+  val skyBranches = branches.sortBy(_.y).slice(0,(branches.size*skyGroundSeparator).toInt)
+  val groundBranches = branches.sortBy(_.y).slice((branches.size*skyGroundSeparator).toInt,(branches.size*groundUndergroundSeparator).toInt)
+  val undergroundBranches = branches.sortBy(_.y).slice((branches.size*groundUndergroundSeparator).toInt, branches.size)
+  assert( (skyBranches intersect groundBranches intersect undergroundBranches).size == 0 )
+  
+  
+  // assign branchTypes to Branches
+  //for( branch - skyBranches ) {
+  //	branch.branchType = Foo.skyTypes
+  //}
+  
 
   val startBranch = randomBranch // choose branch with highest degree?
 
@@ -97,6 +114,7 @@ class Dungeon(seed: Any) extends EuclideanGraph {
     val contourColor = new Color(0x666666)
     val textColor = new Color(0x333333)
     val textFont = new Font("Sans", Font.BOLD, 20)
+	  val branchRadius = 20
 
     val image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
     val g: Graphics2D = image.createGraphics
@@ -112,13 +130,13 @@ class Dungeon(seed: Any) extends EuclideanGraph {
       Vec2(bounds.getWidth, metrics.getHeight)
     }
 
-    def fillCircle(x: Int, y: Int, diameter: Int) = fillOval(x - diameter / 2, y - diameter / 2, diameter, diameter)
-    def drawCircle(x: Int, y: Int, diameter: Int) = drawOval(x - diameter / 2, y - diameter / 2, diameter, diameter)
+    def fillCircle(x: Int, y: Int, radius: Int) = fillOval(x - radius, y - radius, radius * 2, radius * 2)
+    def drawCircle(x: Int, y: Int, radius: Int) = drawOval(x - radius, y - radius, radius * 2, radius * 2)
     def drawBranch(branch: Branch, color: Color) = {
       setColor(color)
-      fillCircle(branch.x, branch.y, branchDiameter)
+      fillCircle(branch.x, branch.y, branchRadius)
       setColor(contourColor)
-      drawCircle(branch.x, branch.y, branchDiameter)
+      drawCircle(branch.x, branch.y, branchRadius)
 
       setColor(textColor)
       val string = branch.id.toString
