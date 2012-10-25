@@ -13,157 +13,215 @@ import geometry._
 import venture.branchtypes._
 
 object Config {
-  val width = 800
-  val height = 600
-  val branchCount = 15 //TODO: muss bei zu hoher Zahl trotzdem terminieren
-  val maxDegree = 4
-  val minDistance = 90
-  val minBorderDistance = minDistance / 2
-  val edgeProbabilities = Array(0.9, 0.6, 0.3)
-  val minLineBranchDistance = 90 //TODO: statt Pixelabstand, den Winkel vom erzeugten Dreieck limitieren
-  
-  val skyGroundSeparator = 0.33
-  val groundUndergroundSeparator = 0.66
+	val width = 800
+	val height = 600
+	val branchCount = Array(3, 4, 7) //TODO: muss bei zu hoher Zahl trotzdem terminieren
+	val skyBranchGroundDistance = 100
+	val undergroundBranchGroundDistance = 50
+	
+	val maxDegree = 4
+	val minDistance = 90
+	val minBorderDistance = minDistance / 2
+	val edgeProbabilities = Array(0.9, 0.6, 0.3)
+	val minLineBranchDistance = 90 //TODO: statt Pixelabstand, den Winkel vom erzeugten Dreieck limitieren
+	
 }
 
 case class Branch(_point: Vec2, seed: Int) extends EuclideanVertex(_point) {
-  def x = point.x.toInt
-  def y = point.y.toInt
-  var branchType:BranchType = null
-  var id: Int = 0
-  override def toString = "Branch(%d)" format id
+	def x = point.x.toInt
+	def y = point.y.toInt
+	var branchType:BranchType = null
+	var id: Int = 0
+	override def toString = "Branch(%d)" format id
 }
 
 case class BranchConnection(nA: Branch, nB: Branch) extends EuclideanEdge(nA, nB)
 
 class Dungeon(seed: Any) extends EuclideanGraph {
-  import Config._
+	import Config._
 
-  private val rng = new util.Random(seed.hashCode)
+	private val rng = new util.Random(seed.hashCode)
 
-  var branches: List[Branch] = Nil
-  override def vertices = branches
-  var connections: List[BranchConnection] = Nil
+	var skyBranches: List[Branch] = Nil
+	var groundBranches: List[Branch] = Nil
+	var undergroundBranches: List[Branch] = Nil
+	def branches = skyBranches ::: groundBranches ::: undergroundBranches
 
-  private def rInt = rng.nextInt & Int.MaxValue
-  private def rDouble = rng.nextDouble
+	override def vertices = branches
+	var connections: List[BranchConnection] = Nil
 
-  def randomBranch = branches(rInt % branches.size)
+	private def rInt = rng.nextInt & Int.MaxValue
+	private def rDouble = rng.nextDouble
 
-  // Branch positions 
-  for (i <- 0 until branchCount) {
-    var newBranch: Branch = null
-    do {
-      newBranch = Branch(Vec2(rInt % width, rInt % height), seed = rInt)
-      newBranch.id = i
-    } while (
-    	branches.exists(d => (d distance newBranch) < minDistance) ||
-      newBranch.x - minBorderDistance < 0 ||
-      newBranch.x + minBorderDistance > width ||
-      newBranch.y - minBorderDistance < 0 ||
-      newBranch.y + minBorderDistance > height)
-    branches ::= newBranch
-  }
-  
-  val skyBranches = branches.sortBy(_.y).slice(0,(branches.size*skyGroundSeparator).toInt)
-  val groundBranches = branches.sortBy(_.y).slice((branches.size*skyGroundSeparator).toInt,(branches.size*groundUndergroundSeparator).toInt)
-  val undergroundBranches = branches.sortBy(_.y).slice((branches.size*groundUndergroundSeparator).toInt, branches.size)
-  assert( (skyBranches intersect groundBranches intersect undergroundBranches).size == 0 )
-  
-  
-  // assign branchTypes to Branches
-  //for( branch - skyBranches ) {
-  //	branch.branchType = Foo.skyTypes
-  //}
-  
+	def randomBranch = branches(rInt % branches.size)
 
-  val startBranch = randomBranch // choose branch with highest degree?
+	def branchTooClose(branch:Branch) = {
+		branches.exists(d => (d distance branch) < minDistance) ||
+		branch.x - minBorderDistance < 0 ||
+		branch.x + minBorderDistance > width ||
+		branch.y - minBorderDistance < 0 ||
+		branch.y + minBorderDistance > height
+	}
 
-  // Connections (minimum spanning tree on complete graph)
-  connections = minimumSpanningTree map (x => BranchConnection(x.vA.asInstanceOf[Branch], x.vB.asInstanceOf[Branch]))
 
-  // More Connections (usually creating cycles and have restrictions)
-  for (branch <- branches) {
-    val d1 = branch
-    val close = branches.sortBy(_ distance d1).tail zip edgeProbabilities
-    val d2s = close.filter(rDouble <= _._2).map(_._1)
-    for ((connection, d2) <- d2s.map(d2 => (BranchConnection(d1, d2), d2))) {
-      if (!connections.exists(_.intersects(connection)) &&
-        !branches.filterNot(d => d == connection.nA || d == connection.nB).exists { d => connection.line.segentDistance(d.point) < Config.minLineBranchDistance } &&
-        d1.degree(connections) <= maxDegree && d2.degree(connections) <= maxDegree)
-        connections ::= connection
-    }
-  }
 
-  // Game path (choose the closest one possible)
-  var gamePath: List[Branch] = List(startBranch)
-  while (gamePath.size < branches.size) {
-    val candidates = gamePath.flatMap(_.neighbours(connections)).distinct.diff(gamePath).asInstanceOf[List[Branch]]
-    gamePath ::= candidates.minBy(_ distance gamePath.head)
-  }
-  for ((branch, i) <- gamePath.reverse zipWithIndex)
-    branch.id = i
+	val groundLineSeed = rInt
+	val groundLine = (x:Int) => (noise.Noise.fractalNoise1(groundLineSeed,x.toDouble/(width/2),2,2.0)*height/6+height/2).toInt
 
-  def drawToImage(filename: String) {
-    import java.io.File
 
-    val backgroundColor = new Color(0xEEEEEE)
-    val branchColor = new Color(0xCCCCCC)
-    val startColor = new Color(0x00A020)
-    val connectionColor = new Color(0x999999)
-    val contourColor = new Color(0x666666)
-    val textColor = new Color(0x333333)
-    val textFont = new Font("Sans", Font.BOLD, 20)
-	  val branchRadius = 20
+	// Ground Branches (on GroundLine)
+	for (i <- 0 until branchCount(1)) {
+		var newBranch: Branch = null
+		do {
+			val x = rInt % width
+			newBranch = Branch(Vec2(x, groundLine(x)), seed = rInt)
+			newBranch.id = i
+		} while ( branchTooClose(newBranch) )
+		newBranch.branchType = Types.ground(rInt % Types.ground.size)
+		
+		groundBranches ::= newBranch
+	}
 
-    val image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
-    val g: Graphics2D = image.createGraphics
-    import g._
-    setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-      RenderingHints.VALUE_ANTIALIAS_ON)
-    setStroke(new java.awt.BasicStroke(3))
-    setFont(textFont)
-    val frc = getFontRenderContext
-    def stringBounds(s: String) = {
-      val bounds = textFont.getStringBounds(s, frc)
-      val metrics = textFont.getLineMetrics(s, frc)
-      Vec2(bounds.getWidth, metrics.getHeight)
-    }
+	// Sky Branches (above GroundLine)
+	for (i <- 0 until branchCount(0)) {
+		var newBranch: Branch = null
+		do {
+			val x = rInt % width
+			newBranch = Branch(Vec2(x, rInt % (groundLine(x) - skyBranchGroundDistance)), seed = rInt)
+			newBranch.id = i
+		} while ( branchTooClose(newBranch) )
+		newBranch.branchType = Types.sky(rInt % Types.sky.size)
+		
+		skyBranches ::= newBranch
+	}
 
-    def fillCircle(x: Int, y: Int, radius: Int) = fillOval(x - radius, y - radius, radius * 2, radius * 2)
-    def drawCircle(x: Int, y: Int, radius: Int) = drawOval(x - radius, y - radius, radius * 2, radius * 2)
-    def drawBranch(branch: Branch, color: Color) = {
-      setColor(color)
-      fillCircle(branch.x, branch.y, branchRadius)
-      setColor(contourColor)
-      drawCircle(branch.x, branch.y, branchRadius)
+	// Underground Branches (below GroundLine)
+	for (i <- 0 until branchCount(2)) {
+		var newBranch: Branch = null
+		do {
+			val x = rInt % width
+			newBranch = Branch(Vec2(x, groundLine(x) + undergroundBranchGroundDistance + (rInt % (height - groundLine(x) - undergroundBranchGroundDistance))), seed = rInt)
+			newBranch.id = i
+		} while ( branchTooClose(newBranch) )
+		newBranch.branchType = Types.underground(rInt % Types.underground.size)
+		
+		undergroundBranches ::= newBranch
+	}
 
-      setColor(textColor)
-      val string = branch.id.toString
-      val bounds = stringBounds(string)
-      drawString(string, (branch.x - bounds.x / 2).toInt, (branch.y + bounds.y / 2).toInt)
-    }
 
-    def drawBranchConnection(edge: BranchConnection, color: Color) {
-      setColor(color)
-      drawLine(edge.nA.x, edge.nA.y, edge.nB.x, edge.nB.y)
-    }
+/*	val possibleTransitions = (branches.combinations(2).filter{
+		case List(a,b) => Types.transitions.keys.exists(s => (s contains a.branchType) && (s contains b.branchType) )
+	}).collect{
+		case List(a,b) => BranchConnection(a,b)
+	}*/
 
-    setBackground(backgroundColor)
-    clearRect(0, 0, width, height)
 
-    for (connection <- connections) {
-      drawBranchConnection(connection, connectionColor)
-    }
+	val startBranch = randomBranch // choose branch with highest degree?
 
-    for (branch <- branches)
-      drawBranch(branch, branchColor)
+	// Connections (minimum spanning tree on complete graph)
+	connections = minimumSpanningTree map (x => BranchConnection(x.vA.asInstanceOf[Branch], x.vB.asInstanceOf[Branch]))
 
-    drawBranch(startBranch, startColor)
 
-    val outputfile = new File(filename)
-    ImageIO.write(image, "png", outputfile)
-  }
+	// More Connections (usually creating cycles and have restrictions)
+	for (branch <- branches) {
+		val d1 = branch
+		val close = branches.sortBy(_ distance d1).tail zip edgeProbabilities
+		val d2s = close.filter(rDouble <= _._2).map(_._1)
+		for ((connection, d2) <- d2s.map(d2 => (BranchConnection(d1, d2), d2))) {
+			if (!connections.exists(_.intersects(connection)) &&
+				!branches.filterNot(d => d == connection.nA || d == connection.nB).exists { d => connection.line.segentDistance(d.point) < Config.minLineBranchDistance } &&
+				d1.degree(connections) <= maxDegree && d2.degree(connections) <= maxDegree)
+				connections ::= connection
+		}
+	}
+
+	// Game path (choose the closest one possible)
+	var gamePath: List[Branch] = List(startBranch)
+	while (gamePath.size < branches.size) {
+		val candidates = gamePath.flatMap(_.neighbours(connections)).distinct.diff(gamePath).asInstanceOf[List[Branch]]
+		gamePath ::= candidates.minBy(_ distance gamePath.head)
+	}
+	for ((branch, i) <- gamePath.reverse zipWithIndex)
+		branch.id = i
+
+	def drawToImage(filename: String) {
+		import java.io.File
+
+		val backgroundColor = new Color(0xEEEEEE)
+//		val branchColor = new Color(0xCCCCCC)
+		val startColor = new Color(0x00A020)
+		val connectionColor = new Color(0x999999)
+		val contourColor = new Color(0x333333)
+		val lightTextColor = new Color(0xFFFFFF)
+		val darkTextColor = new Color(0x222222)
+		val noiseLineColor = new Color(0x5ea264)
+		val textFont = new Font("Sans", Font.BOLD, 20)
+		val branchRadius = 20
+
+		val image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+		val g: Graphics2D = image.createGraphics
+		import g._
+		setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+			RenderingHints.VALUE_ANTIALIAS_ON)
+		setStroke(new java.awt.BasicStroke(3))
+		setFont(textFont)
+		val frc = getFontRenderContext
+		def stringBounds(s: String) = {
+			val bounds = textFont.getStringBounds(s, frc)
+			val metrics = textFont.getLineMetrics(s, frc)
+			Vec2(bounds.getWidth, metrics.getHeight)
+		}
+
+		def fillCircle(x: Int, y: Int, radius: Int) = fillOval(x - radius, y - radius, radius * 2, radius * 2)
+		def drawCircle(x: Int, y: Int, radius: Int) = drawOval(x - radius, y - radius, radius * 2, radius * 2)
+		def drawBranch(branch: Branch, color: Color) = {
+			setColor(color)
+			fillCircle(branch.x, branch.y, branchRadius)
+			setColor(contourColor)
+			drawCircle(branch.x, branch.y, branchRadius)
+			
+			val v = color.getComponents(new Array[Float](4)).take(3).max
+			setColor(if( v > 0.5 ) darkTextColor else lightTextColor)
+			val string = branch.id.toString
+			val bounds = stringBounds(string)
+			drawString(string, (branch.x - bounds.x / 2).toInt, (branch.y + bounds.y / 2).toInt)
+		}
+
+		def drawBranchConnection(edge: BranchConnection, color: Color) {
+			setColor(color)
+			drawLine(edge.nA.x, edge.nA.y, edge.nB.x, edge.nB.y)
+		}
+
+		def drawNoiseLine( f:Int => Int ) {
+			val xpoints = (0 until width).toArray
+			val ypoints = xpoints map f
+			setColor( noiseLineColor )
+			drawPolyline(xpoints,ypoints,width)
+		}
+		
+		
+		setBackground(backgroundColor)
+		clearRect(0, 0, width, height)
+		
+		drawNoiseLine(groundLine)
+		
+		for (connection <- connections) {
+			drawBranchConnection(connection, connectionColor)
+		}
+
+/*		for (connection <- possibleTransitions) {
+			drawBranchConnection(connection, connectionColor)
+		}*/
+
+		for (branch <- branches)
+			drawBranch(branch, branch.branchType.color)
+		
+		setColor(contourColor)
+		drawCircle(startBranch.x, startBranch.y, (branchRadius*1.4).toInt)
+
+		val outputfile = new File(filename)
+		ImageIO.write(image, "png", outputfile)
+	}
 }
 
 
