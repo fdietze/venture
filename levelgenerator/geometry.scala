@@ -21,6 +21,7 @@ case class Vec2(x: Double, y: Double) extends Ordered[Vec2] {
 }
 
 case class Line(start: Vec2, end: Vec2) {
+	def midPoint = (start + end) * 0.5
 	def dir = end - start
 	def apply(t: Double) = start + dir * t
 	def length = dir.length

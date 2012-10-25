@@ -25,6 +25,7 @@ object Config {
 	val edgeProbabilities = Array(0.9, 0.6, 0.3)
 	val minLineBranchDistance = 90 //TODO: statt Pixelabstand, den Winkel vom erzeugten Dreieck limitieren
 	
+	val itemDependencies = branchCount.sum / 3
 }
 
 case class Branch(_point: Vec2, seed: Int) extends EuclideanVertex(_point) {
@@ -35,7 +36,13 @@ case class Branch(_point: Vec2, seed: Int) extends EuclideanVertex(_point) {
 	override def toString = "Branch(%d)" format id
 }
 
-case class BranchConnection(nA: Branch, nB: Branch) extends EuclideanEdge(nA, nB)
+case class BranchConnection(nA: Branch, nB: Branch) extends EuclideanEdge(nA, nB) {
+	def lowerId = if( nA.id < nB.id ) nA else nB
+	def higherId = if( nA.id > nB.id ) nA else nB
+	def midPoint = line.midPoint
+}
+
+case class ItemDependency(branch:Branch, connection:BranchConnection)
 
 class Dungeon(seed: Any) extends EuclideanGraph {
 	import Config._
@@ -118,7 +125,7 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 
 	val startBranch = randomBranch // choose branch with highest degree?
 
-	// Connections (minimum spanning tree on complete graph)
+	// base connections (minimum spanning tree on complete graph)
 	connections = minimumSpanningTree map (x => BranchConnection(x.vA.asInstanceOf[Branch], x.vB.asInstanceOf[Branch]))
 
 
@@ -144,6 +151,16 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 	for ((branch, i) <- gamePath.reverse zipWithIndex)
 		branch.id = i
 
+
+  // Item dependencies
+  val items = rng.shuffle(gamePath.tail).take(itemDependencies)
+  val dependencies = items.map{ branch =>
+    val candidates = connections.filter( _.higherId.id > branch.id )
+    ItemDependency(branch, candidates(rInt % candidates.size))
+  }
+
+
+
 	def drawToImage(filename: String) {
 		import java.io.File
 
@@ -155,6 +172,7 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		val lightTextColor = new Color(0xFFFFFF)
 		val darkTextColor = new Color(0x222222)
 		val noiseLineColor = new Color(0x5ea264)
+		val dependencyColor = new Color(0x22df81)
 		val textFont = new Font("Sans", Font.BOLD, 20)
 		val branchRadius = 20
 
@@ -192,6 +210,11 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 			drawLine(edge.nA.x, edge.nA.y, edge.nB.x, edge.nB.y)
 		}
 
+		def drawItemDependency(dep: ItemDependency) {
+			setColor(dependencyColor)
+			drawLine(dep.branch.x, dep.branch.y, dep.connection.midPoint.x.toInt, dep.connection.midPoint.y.toInt)
+		}
+
 		def drawNoiseLine( f:Int => Int ) {
 			val xpoints = (0 until width).toArray
 			val ypoints = xpoints map f
@@ -208,6 +231,10 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		for (connection <- connections) {
 			drawBranchConnection(connection, connectionColor)
 		}
+
+    for( dependency <- dependencies ) {
+      drawItemDependency(dependency)
+    }
 
 /*		for (connection <- possibleTransitions) {
 			drawBranchConnection(connection, connectionColor)
