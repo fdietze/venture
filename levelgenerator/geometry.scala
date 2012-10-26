@@ -90,7 +90,7 @@ class Triangle(a: Vec2, b: Vec2, c: Vec2) {
 		else sys.error("Point %s not in %s" format (p, this))
 	}
 
-	def contains(p: Vec2) = {
+	def inside(p: Vec2) = {
 		//TODO: def ccw(p1:Vec2, p2:Vec2, p3:Vec2)
 		Line(a, b).ccw(p) &&
 			Line(b, c).ccw(p) &&

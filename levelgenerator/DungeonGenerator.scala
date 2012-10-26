@@ -158,7 +158,8 @@ class Dungeon(seed: Any) extends EuclideanGraph {
     val candidates = connections.filter( _.higherId.id > branch.id )
     ItemDependency(branch, candidates(rInt % candidates.size))
   }
-
+  
+  val delauny:List[BranchConnection] = delaunayEdges.map{ e => BranchConnection(e.vA.asInstanceOf[Branch],e.vB.asInstanceOf[Branch]) }
 
 
 	def drawToImage(filename: String) {
@@ -173,6 +174,7 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		val darkTextColor = new Color(0x222222)
 		val noiseLineColor = new Color(0x5ea264)
 		val dependencyColor = new Color(0x22df81)
+		val branchBoundColor = new Color(0xDDDDDD)
 		val textFont = new Font("Sans", Font.BOLD, 20)
 		val branchRadius = 20
 
@@ -227,6 +229,23 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		clearRect(0, 0, width, height)
 		
 		drawNoiseLine(groundLine)
+
+/*		for (d <- delauny) {
+			drawBranchConnection(d, new Color(0xffe7ce))
+		}*/
+
+    for( Line(Vec2(x1,y1),Vec2(x2,y2)) <- voronoi(width, height) ) {
+      setColor(branchBoundColor)
+      drawLine(x1.toInt,y1.toInt,x2.toInt,y2.toInt)
+    }
+
+    /*for( (branch, polygon) <- voronoi(width, height).take(1) ) {
+      setColor(branchBoundColor)
+      val xpoints = polygon.map(_.x.toInt).toArray
+      val ypoints = polygon.map(_.y.toInt).toArray
+      drawPolyline(xpoints,ypoints,polygon.size)
+    }*/
+
 		
 		for (connection <- connections) {
 			drawBranchConnection(connection, connectionColor)
