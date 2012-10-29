@@ -20,23 +20,49 @@ case class Vec2(x: Double, y: Double) extends Ordered[Vec2] {
 	def normalized = this / length
 }
 
-case class Line(start: Vec2, end: Vec2) {
-	def midPoint = (start + end) * 0.5
-	def dir = end - start
-	def apply(t: Double) = start + dir * t
+trait LineLike {
+  def a:Vec2
+  def b:Vec2
+  require(a != b)
+  
+	def dir = b - a
+	def apply(t: Double) = a + dir * t
+	def midPoint = (a + b) * 0.5
 	def length = dir.length
 	def normal = Vec2(dir.y, -dir.x)
 
-	def intersection(that: Line) = {
+	def intersection(that: LineLike):Option[Double] = {
 		// t = (A-P).n / (A-B).n
 		val d = this.dir dot that.normal
 		if (d == 0) None
-		else Some(((that.end - this.start) dot that.normal) / d)
+		else Some(((that.b - this.a) dot that.normal) / d)
 	}
+	
+	def intersections(polygon:ConvexPolygon):List[Double] = {
+	  polygon.edges.filter{ e =>
+		  val t = (e intersection this)
+		  t.isDefined && t.get >= 0 && t.get <= 1
+		}.flatMap( this intersection _ )
+	}
+	
+	def intersectionPoints(polygon:ConvexPolygon) = intersections(polygon).map(apply)
+	
+	def ccw(p: Vec2) = (a.x - p.x) * (b.y - p.y) - (a.y - p.y) * (b.x - p.x) > 0
+}
 
-	def ccw(p: Vec2) = (start.x - p.x) * (end.y - p.y) - (start.y - p.y) * (end.x - p.x) > 0
+case class Line(a:Vec2, b:Vec2) extends LineLike
 
-	def segmentIntersects(that: Line) = {
+case class Ray(a:Vec2, b:Vec2) extends LineLike {
+	override def intersections(polygon: ConvexPolygon) = 	intersections(polygon).filter(_ >= 0)
+  override def intersectionPoints(polygon: ConvexPolygon) = intersections(polygon).map(apply)
+  def firstIntersectionPoint(polygon: ConvexPolygon) = apply(intersections(polygon).min)
+}
+
+case class Segment(a:Vec2, b:Vec2) extends LineLike {
+	override def intersections(polygon: ConvexPolygon) = intersections(polygon).filter(d => d >= 0 && d <= 1)
+  override def intersectionPoints(polygon: ConvexPolygon) = intersections(polygon).map(apply)
+
+	def intersects(that: Segment) = {
 		(this.intersection(that), that.intersection(this)) match {
 			case (Some(s), Some(t)) =>
 				0 < t && t < 1 && 0 < s && s < 1
@@ -44,18 +70,52 @@ case class Line(start: Vec2, end: Vec2) {
 		}
 	}
 
-	def segentDistance(p: Vec2) = {
+	def distance(p: Vec2) = {
 		val v = dir.normalized
-		val t = (p - start) dot v
+		val t = (p - a) dot v
 		if (0 < t && t < length)
 			(apply(t / length) - p).length
 		else
 			Double.MaxValue
 	}
+
+  def clip(polygon:ConvexPolygon):Segment = {
+    val is = intersections(polygon).sorted
+    assert( is.size == 0 || is.size == 2 )
+    is match {
+      case List(t1,t2) => new Segment(apply(t1), apply(t2))
+      case Nil => this
+    }
+  }
 }
 
+trait ConvexPolygonLike extends collection.SeqProxy[Vec2] {
+  def points:List[Vec2]
+  
+  def self = points
+  private def rotatedSlidingWindow(n:Int) = (points ::: points.take(n-1)).sliding(n)
+  def edges = rotatedSlidingWindow(2).map{ case List(a,b) => new Segment(a,b) }.toList
+  def triples = rotatedSlidingWindow(3)
+  require( points.size == points.distinct.size, "No degenerated Polygons allowed:\n%s" format(points) )
+  require( points.distinct.size >= 3, "Not enough Points: %d\n%s" format (points.size, points) )
+  require( triples.forall{ case List(a,b,c) => Line(a,b).ccw(c) }, "Points not in ccw order:\n%s\n%s" format (points, points.map(p => {val Vec2(x,y) = (points.head-p); math.atan2(y,x)})))
+}
+
+case class ConvexPolygon(points:List[Vec2]) extends ConvexPolygonLike
+
+object ConvexPolygon {
+  def fromUnsorted(points:List[Vec2]) = {
+    val centre = points.reduce(_ + _) / points.size
+    new ConvexPolygon(points.distinct.sortBy{v =>
+      val Vec2(x,y) = (centre - v)
+      math.atan2(y,x)
+    })
+  }
+}
+
+
 object Triangle {
-	def apply(points: List[Vec2]) = {
+	def fromUnsorted(points: List[Vec2]) = {
 		points.sorted match {
 			case List(a, b, c) =>
 				if (Line(a, b) ccw c)
@@ -67,7 +127,11 @@ object Triangle {
 	}
 }
 
-class Triangle(a: Vec2, b: Vec2, c: Vec2) {
+trait TriangleLike extends ConvexPolygon {
+  def a: Vec2
+  def b: Vec2
+  def c: Vec2
+
 	require(a != b && b != c && c != a,
 		"Two points are the same: %s %s %s" format (a, b, c))
 	require(a <= b && a <= c,
@@ -76,8 +140,8 @@ class Triangle(a: Vec2, b: Vec2, c: Vec2) {
 		Line(b, c).ccw(a) &&
 		Line(c, a).ccw(b),
 		"Points not in ccw order: %s %s %s" format (a, b, c))
-	def points = List(a, b, c)
-	def connectedTo(that: Triangle) = (this.points intersect that.points).size == 2
+	//def points = List(a, b, c)
+	def connectedTo(that: TriangleLike) = (this.points intersect that.points).size == 2
 	def angleAt(p: Vec2) = {
 		def angle(p1: Vec2, p2: Vec2, p3: Vec2) = {
 			val a = p1 - p2
@@ -103,5 +167,20 @@ class Triangle(a: Vec2, b: Vec2, c: Vec2) {
 		val y = ((a.x * a.x + a.y * a.y) * (c.x - b.x) + (b.x * b.x + b.y * b.y) * (a.x - c.x) + (c.x * c.x + c.y * c.y) * (b.x - a.x)) / d
 		Vec2(x, y)
 	}
+}
+
+case class Triangle(a:Vec2, b:Vec2, c:Vec2)
+
+case class Rectangle(a:Vec2, b:Vec2) extends ConvexPolygonLike {
+  def c = Vec2(b.x,a.y)
+  def d = Vec2(a.x,b.y)
+  def points = List(a,c,b,d)
+  //a--d
+  //|  |
+  //c--b
+  def width = (a.x-b.x).abs
+  def height = (a.y-b.y).abs
+  //require( width > 0 && height > 0, "No degenerated rectangles allowed." )
+  //def edges = List(Line(a,c),Line(c,b), Line(b,d), Line(d,a))
 }
 

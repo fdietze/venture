@@ -1,18 +1,18 @@
 package graph
 
-trait Vertex {
+trait VertexLike {
   def neighbours(edges: List[Edge]) = edges.filter(_ contains this).map(_ otherVertex this).distinct
   def degree(edges: List[Edge]) = neighbours(edges).size
 }
 
-trait Edge {
+trait EdgeLike {
   def vA: Vertex
   def vB: Vertex
   def contains(v: Vertex) = (v == vA || v == vB)
   def otherVertex(v: Vertex) = { require(contains(v)); if (v == vA) vB else vA }
 }
 
-trait Graph {
+trait GraphLike {
   def vertices: List[Vertex]
 
   def isConnected(edges: List[Edge]) = {
@@ -87,7 +87,12 @@ object EuclideanTriangle {
     }
   }
 }
-case class EuclideanTriangle(a: EuclideanVertex, b: EuclideanVertex, c: EuclideanVertex) extends geometry.Triangle(a.point, b.point, c.point) with Triangle {
+case class EuclideanTriangle(a: EuclideanVertex, b: EuclideanVertex, c: EuclideanVertex) extends geometry.TriangleLike with Triangle {
+
+  def a = a.point
+  def b = b.point
+  def c = c.point
+
   def inside(p: EuclideanVertex) = super.inside(p.point)
   def contains(p: EuclideanVertex) = List(a,b,c) contains p
   def vertices = List(a, b, c)
@@ -133,7 +138,7 @@ trait EuclideanGraph extends Graph {
       edges :::= candidates.filterNot(e => edges.exists(_ == e) || edges.exists(_ intersects e))
     }
 
-    def getNext: List[List[EuclideanTriangle]] = {
+    def getNext: Option[List[EuclideanTriangle]] = {
       val triangles = vertices.flatMap(nA => nA.neighbours(edges).combinations(2).filter {
         case List(nB, nC) => edges.exists(c => (c contains nB) && (c contains nC))
         case _            => false
@@ -146,7 +151,7 @@ trait EuclideanGraph extends Graph {
         case _            => false
       }
 
-      val notMeetingDelaunayCondition = connectedTriangles.filter {
+      val notMeetingDelaunayCondition = connectedTriangles.find {
         case List(tA, tB) =>
           val sharedVertices = tA.vertices intersect tB.vertices
           val angleA = tA.angleAt((tA.vertices diff sharedVertices).head)
@@ -155,12 +160,12 @@ trait EuclideanGraph extends Graph {
         case _ => false
       }
 
-      notMeetingDelaunayCondition.toList
+      notMeetingDelaunayCondition
     }
     // iterate over all connected triangles
-    var next: List[List[EuclideanTriangle]] = null
+    var next: Option[List[EuclideanTriangle]] = null
     while ({ next = getNext; next.nonEmpty }) {
-      val List(tA, tB) = next.head
+      val List(tA, tB) = next.get
       val sharedVertices = tA.vertices intersect tB.vertices
       val notSharedVertices = (tA.vertices union tB.vertices).distinct diff sharedVertices
       edges = edges.filterNot(e => (sharedVertices contains e.vA) && (sharedVertices contains e.vB))
@@ -172,6 +177,8 @@ trait EuclideanGraph extends Graph {
   }
   
   def voronoi(maxWidth:Double, maxHeight:Double) = {
+    val boundingRect = Rectangle(Vec2(0,0), Vec2(maxWidth, maxHeight))
+  
     val delaunay = delaunayEdges
     val triangles = vertices.flatMap(nA => nA.neighbours(delaunay).combinations(2).filter {
         case List(nB, nC) => delaunay.exists(c => (c contains nB) && (c contains nC))
@@ -180,12 +187,12 @@ trait EuclideanGraph extends Graph {
         case List(nB, nC) => EuclideanTriangle(List(nA, nB, nC))
       }).distinct.filterNot(t => vertices.exists(t inside _))
 
-    val connectedTriangles = triangles.combinations(2).filter {
+    val connectedTriangles = (triangles.combinations(2).filter {
       case List(tA, tB) => tA connectedTo tB
       case _            => false
-    }
+    }).toList
     
-/*    var cells = new collection.mutable.HashMap[EuclideanVertex,List[Vec2]]()
+    var cells = new collection.mutable.HashMap[EuclideanVertex,List[Vec2]]()
 
     for( List(tA,tB) <- connectedTriangles ) {
       val sharedVertices = tA.vertices intersect tB.vertices
@@ -194,21 +201,45 @@ trait EuclideanGraph extends Graph {
       }
     }
 
-    cells = cells.map{ case (v,p) => v -> p.distinct.sortBy{v =>
-      val Vec2(x,y) = (p.head - v)
-      math.atan2(y,x)
-    }}*/
+    for( t <- triangles; (a,b) <- t.edgesWithoutNeighbours(triangles) ) {
+        val edge = Line(a.point,b.point)
+        val c = t.circumcenter
+        val line = Line(c, c+edge.normal)
+        val intersection = line rayIntersectionPoint boundingRect
+        intersection match {
+          case Some(p) =>
+            val farPoint = (line rayIntersectionPoint boundingRect).get
+            //val farPoint = edge.midPoint + edge.normal.normalized*(maxWidth + maxHeight)
+            cells(a) = farPoint :: (if(!cells.isDefinedAt(a)) Nil else cells(a))
+            cells(b) = farPoint :: (if(!cells.isDefinedAt(b)) Nil else cells(b))
+          case None =>
+        }
+    }
+
+
+    val polygons = cells.map{ case (v,p) => println(v); v -> ConvexPolygon.fromUnsorted(p)}
+
+
+
     
     val lines = connectedTriangles.map{ case List(tA,tB) =>
       Line(tA.circumcenter,tB.circumcenter)
     }
-    val infinityLines:List[Line] = triangles.flatMap(t => t.edgesWithoutNeighbours(triangles).collect{ case (a,b) =>
-      val edge = Line(a.point,b.point)
-      val c = t.circumcenter
-      // very long line from the midpoint
-      Line(c, edge.midPoint + edge.normal.normalized*(maxWidth + maxHeight))
+    val infinityLines:List[Line] = triangles.flatMap(t => t.edgesWithoutNeighbours(triangles).flatMap{
+      case (a,b) =>
+        val edge = Line(a.point,b.point)
+        val c = t.circumcenter
+        val line = Line(c, c+edge.normal)
+        val intersection = line rayIntersectionPoint boundingRect
+        intersection match {
+          case Some(p) => Some(Line(c, p))
+          case None => None
+        }
+        //Line(c, (line rayIntersectionPoint boundingRect).get )
+        //Line(c, edge.midPoint + edge.normal.normalized*(maxWidth + maxHeight))
     })
     
-    lines ++ infinityLines
+    
+    (polygons, infinityLines)
   }
 }

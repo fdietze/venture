@@ -149,7 +149,7 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		gamePath ::= candidates.minBy(_ distance gamePath.head)
 	}
 	for ((branch, i) <- gamePath.reverse zipWithIndex)
-		branch.id = i
+		branch.id = i+1
 
 
   // Item dependencies
@@ -230,30 +230,31 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		
 		drawNoiseLine(groundLine)
 
-/*		for (d <- delauny) {
+		for (d <- delauny) {
 			drawBranchConnection(d, new Color(0xffe7ce))
-		}*/
+		}
 
-    for( Line(Vec2(x1,y1),Vec2(x2,y2)) <- voronoi(width, height) ) {
-      setColor(branchBoundColor)
+    for( Line(Vec2(x1,y1),Vec2(x2,y2)) <- voronoi(width, height)._2 ) {
+      setColor(new Color(0xBBBBBB))
       drawLine(x1.toInt,y1.toInt,x2.toInt,y2.toInt)
     }
 
-    /*for( (branch, polygon) <- voronoi(width, height).take(1) ) {
+    for( (branch, polygon) <- voronoi(width, height)._1 ) {
+      val smallerPolygon = polygon.map(v => (v - branch.point)*0.9 + branch.point)
+      val xpoints = smallerPolygon.map(_.x.toInt).toArray
+      val ypoints = smallerPolygon.map(_.y.toInt).toArray
       setColor(branchBoundColor)
-      val xpoints = polygon.map(_.x.toInt).toArray
-      val ypoints = polygon.map(_.y.toInt).toArray
-      drawPolyline(xpoints,ypoints,polygon.size)
-    }*/
+      drawPolygon(xpoints,ypoints,polygon.size)
+    }
 
 		
-		for (connection <- connections) {
+/*		for (connection <- connections) {
 			drawBranchConnection(connection, connectionColor)
 		}
 
     for( dependency <- dependencies ) {
       drawItemDependency(dependency)
-    }
+    }*/
 
 /*		for (connection <- possibleTransitions) {
 			drawBranchConnection(connection, connectionColor)
