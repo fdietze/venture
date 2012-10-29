@@ -39,7 +39,7 @@ case class Branch(_point: Vec2, seed: Int) extends EuclideanVertex(_point) {
 case class BranchConnection(nA: Branch, nB: Branch) extends EuclideanEdge(nA, nB) {
 	def lowerId = if( nA.id < nB.id ) nA else nB
 	def higherId = if( nA.id > nB.id ) nA else nB
-	def midPoint = line.midPoint
+	def midPoint = lineSegment.midPoint
 }
 
 case class ItemDependency(branch:Branch, connection:BranchConnection)
@@ -136,7 +136,7 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		val d2s = close.filter(rDouble <= _._2).map(_._1)
 		for ((connection, d2) <- d2s.map(d2 => (BranchConnection(d1, d2), d2))) {
 			if (!connections.exists(_.intersects(connection)) &&
-				!branches.filterNot(d => d == connection.nA || d == connection.nB).exists { d => connection.line.segentDistance(d.point) < Config.minLineBranchDistance } &&
+				!branches.filterNot(d => d == connection.nA || d == connection.nB).exists { d => connection.lineSegment.distance(d.point) < Config.minLineBranchDistance } &&
 				d1.degree(connections) <= maxDegree && d2.degree(connections) <= maxDegree)
 				connections ::= connection
 		}

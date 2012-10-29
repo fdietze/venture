@@ -1,18 +1,18 @@
 package graph
 
-trait VertexLike {
+trait Vertex {
   def neighbours(edges: List[Edge]) = edges.filter(_ contains this).map(_ otherVertex this).distinct
   def degree(edges: List[Edge]) = neighbours(edges).size
 }
 
-trait EdgeLike {
+trait Edge {
   def vA: Vertex
   def vB: Vertex
   def contains(v: Vertex) = (v == vA || v == vB)
   def otherVertex(v: Vertex) = { require(contains(v)); if (v == vA) vB else vA }
 }
 
-trait GraphLike {
+trait Graph {
   def vertices: List[Vertex]
 
   def isConnected(edges: List[Edge]) = {
@@ -56,22 +56,22 @@ trait GraphLike {
 }
 
 trait Triangle {
-  def a: Vertex
-  def b: Vertex
-  def c: Vertex
+  def vA: Vertex
+  def vB: Vertex
+  def vC: Vertex
 }
 
 class EuclideanVertex(val point: geometry.Vec2) extends Vertex with Ordered[EuclideanVertex] {
   import geometry._
   def compare(that: EuclideanVertex) = this.point compare that.point
-  def distance(that: EuclideanVertex) = Line(this.point, that.point).length
+  def distance(that: EuclideanVertex) = LineSegment(this.point, that.point).length
   override def neighbours(edges: List[Edge]) = super.neighbours(edges).asInstanceOf[List[EuclideanVertex]]
 }
 
 class EuclideanEdge(val vA: EuclideanVertex, val vB: EuclideanVertex) extends Edge {
   import geometry._
-  def line = Line(vA.point, vB.point)
-  def intersects(that: EuclideanEdge) = this.line segmentIntersects that.line
+  def lineSegment = LineSegment(vA.point, vB.point)
+  def intersects(that: EuclideanEdge) = this.lineSegment intersects that.lineSegment
 }
 
 object EuclideanTriangle {
@@ -87,12 +87,11 @@ object EuclideanTriangle {
     }
   }
 }
-case class EuclideanTriangle(a: EuclideanVertex, b: EuclideanVertex, c: EuclideanVertex) extends geometry.TriangleLike with Triangle {
-
-  def a = a.point
-  def b = b.point
-  def c = c.point
-
+case class EuclideanTriangle(vA: EuclideanVertex, vB: EuclideanVertex, vC: EuclideanVertex) extends geometry.TriangleLike with Triangle {
+  def a = vA.point
+  def b = vB.point
+  def c = vB.point
+  
   def inside(p: EuclideanVertex) = super.inside(p.point)
   def contains(p: EuclideanVertex) = List(a,b,c) contains p
   def vertices = List(a, b, c)
@@ -118,7 +117,7 @@ trait EuclideanGraph extends Graph {
     // https://de.wikipedia.org/wiki/Algorithmus_von_Kruskal#Algorithmus
     var edges: List[EuclideanEdge] = Nil
     //TODO: use delaunayEdges instead of complete graph
-    var L = vertices.combinations(2).collect { case List(a, b) => new EuclideanEdge(a, b) }.toList.sortBy(_.line.length)
+    var L = vertices.combinations(2).collect { case List(a, b) => new EuclideanEdge(a, b) }.toList.sortBy(_.lineSegment.length)
     while (L.nonEmpty) {
       val e = L.head
       L = L.tail
@@ -202,16 +201,16 @@ trait EuclideanGraph extends Graph {
     }
 
     for( t <- triangles; (a,b) <- t.edgesWithoutNeighbours(triangles) ) {
-        val edge = Line(a.point,b.point)
+        val edge = LineSegment(a.point,b.point)
         val c = t.circumcenter
-        val line = Line(c, c+edge.normal)
-        val intersection = line rayIntersectionPoint boundingRect
+        val ray = Ray(c, c + edge.normal)
+        val intersection = ray firstIntersectionPoint boundingRect
         intersection match {
           case Some(p) =>
-            val farPoint = (line rayIntersectionPoint boundingRect).get
+            //val farPoint = (line rayIntersectionPoint boundingRect).get
             //val farPoint = edge.midPoint + edge.normal.normalized*(maxWidth + maxHeight)
-            cells(a) = farPoint :: (if(!cells.isDefinedAt(a)) Nil else cells(a))
-            cells(b) = farPoint :: (if(!cells.isDefinedAt(b)) Nil else cells(b))
+            cells(a) = p :: (if(!cells.isDefinedAt(a)) Nil else cells(a))
+            cells(b) = p :: (if(!cells.isDefinedAt(b)) Nil else cells(b))
           case None =>
         }
     }
@@ -227,10 +226,10 @@ trait EuclideanGraph extends Graph {
     }
     val infinityLines:List[Line] = triangles.flatMap(t => t.edgesWithoutNeighbours(triangles).flatMap{
       case (a,b) =>
-        val edge = Line(a.point,b.point)
+        val edge = LineSegment(a.point,b.point)
         val c = t.circumcenter
-        val line = Line(c, c+edge.normal)
-        val intersection = line rayIntersectionPoint boundingRect
+        val ray = Ray(c, c+edge.normal)
+        val intersection = ray firstIntersectionPoint boundingRect
         intersection match {
           case Some(p) => Some(Line(c, p))
           case None => None

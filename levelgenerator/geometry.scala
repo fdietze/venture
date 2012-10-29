@@ -27,8 +27,6 @@ trait LineLike {
   
 	def dir = b - a
 	def apply(t: Double) = a + dir * t
-	def midPoint = (a + b) * 0.5
-	def length = dir.length
 	def normal = Vec2(dir.y, -dir.x)
 
 	def intersection(that: LineLike):Option[Double] = {
@@ -38,14 +36,14 @@ trait LineLike {
 		else Some(((that.b - this.a) dot that.normal) / d)
 	}
 	
-	def intersections(polygon:ConvexPolygon):List[Double] = {
+	def intersections(polygon:ConvexPolygonLike):List[Double] = {
 	  polygon.edges.filter{ e =>
 		  val t = (e intersection this)
 		  t.isDefined && t.get >= 0 && t.get <= 1
 		}.flatMap( this intersection _ )
 	}
 	
-	def intersectionPoints(polygon:ConvexPolygon) = intersections(polygon).map(apply)
+	def intersectionPoints(polygon:ConvexPolygonLike) = intersections(polygon).map(apply)
 	
 	def ccw(p: Vec2) = (a.x - p.x) * (b.y - p.y) - (a.y - p.y) * (b.x - p.x) > 0
 }
@@ -53,16 +51,25 @@ trait LineLike {
 case class Line(a:Vec2, b:Vec2) extends LineLike
 
 case class Ray(a:Vec2, b:Vec2) extends LineLike {
-	override def intersections(polygon: ConvexPolygon) = 	intersections(polygon).filter(_ >= 0)
-  override def intersectionPoints(polygon: ConvexPolygon) = intersections(polygon).map(apply)
-  def firstIntersectionPoint(polygon: ConvexPolygon) = apply(intersections(polygon).min)
+	override def intersections(polygon: ConvexPolygonLike) = 	intersections(polygon).filter(_ >= 0)
+  override def intersectionPoints(polygon: ConvexPolygonLike) = intersections(polygon).map(apply)
+  def firstIntersectionPoint(polygon: ConvexPolygonLike):Option[Vec2] = {
+    val is = intersections(polygon)
+    if( is.nonEmpty )
+      Some(apply(is.min))
+    else
+      None
+  }
 }
 
-case class Segment(a:Vec2, b:Vec2) extends LineLike {
-	override def intersections(polygon: ConvexPolygon) = intersections(polygon).filter(d => d >= 0 && d <= 1)
-  override def intersectionPoints(polygon: ConvexPolygon) = intersections(polygon).map(apply)
+case class LineSegment(a:Vec2, b:Vec2) extends LineLike {
+	def midPoint = (a + b) * 0.5
+	def length = dir.length
 
-	def intersects(that: Segment) = {
+	override def intersections(polygon: ConvexPolygonLike) = intersections(polygon).filter(d => d >= 0 && d <= 1)
+  override def intersectionPoints(polygon: ConvexPolygonLike) = intersections(polygon).map(apply)
+
+	def intersects(that: LineSegment) = {
 		(this.intersection(that), that.intersection(this)) match {
 			case (Some(s), Some(t)) =>
 				0 < t && t < 1 && 0 < s && s < 1
@@ -79,11 +86,11 @@ case class Segment(a:Vec2, b:Vec2) extends LineLike {
 			Double.MaxValue
 	}
 
-  def clip(polygon:ConvexPolygon):Segment = {
+  def clip(polygon:ConvexPolygonLike):LineSegment = {
     val is = intersections(polygon).sorted
     assert( is.size == 0 || is.size == 2 )
     is match {
-      case List(t1,t2) => new Segment(apply(t1), apply(t2))
+      case List(t1,t2) => LineSegment(apply(t1), apply(t2))
       case Nil => this
     }
   }
@@ -94,7 +101,7 @@ trait ConvexPolygonLike extends collection.SeqProxy[Vec2] {
   
   def self = points
   private def rotatedSlidingWindow(n:Int) = (points ::: points.take(n-1)).sliding(n)
-  def edges = rotatedSlidingWindow(2).map{ case List(a,b) => new Segment(a,b) }.toList
+  def edges = rotatedSlidingWindow(2).map{ case List(a,b) => LineSegment(a,b) }.toList
   def triples = rotatedSlidingWindow(3)
   require( points.size == points.distinct.size, "No degenerated Polygons allowed:\n%s" format(points) )
   require( points.distinct.size >= 3, "Not enough Points: %d\n%s" format (points.size, points) )
@@ -127,7 +134,7 @@ object Triangle {
 	}
 }
 
-trait TriangleLike extends ConvexPolygon {
+trait TriangleLike extends ConvexPolygonLike {
   def a: Vec2
   def b: Vec2
   def c: Vec2
