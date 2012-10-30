@@ -18,12 +18,25 @@ case class Vec2(x: Double, y: Double) extends Ordered[Vec2] {
 	def dot(that: Vec2) = this.x * that.x + this.y * that.y
 	def length = sqrt(x * x + y * y)
 	def normalized = this / length
+	
+  def trunced = (math.round(x*1000)*0.001, math.round(y*1000)*0.001)
+	
+	override def equals(other:Any) = {
+	  other match {
+	    case that:Vec2 => this.trunced == that.trunced
+	    case _ => false
+	  }
+	}
+	
+	override def hashCode = this.trunced.hashCode
+	
+	override def toString = "Vec2(%3.2f / %3.2f)" format (x,y)
 }
 
 trait LineLike {
   def a:Vec2
   def b:Vec2
-  require(a != b)
+  require(a != b, "No Degenerated Lines allowed: %s %s" format(a,b))
   
 	def dir = b - a
 	def apply(t: Double) = a + dir * t
@@ -51,7 +64,7 @@ trait LineLike {
 case class Line(a:Vec2, b:Vec2) extends LineLike
 
 case class Ray(a:Vec2, b:Vec2) extends LineLike {
-	override def intersections(polygon: ConvexPolygonLike) = 	intersections(polygon).filter(_ >= 0)
+	override def intersections(polygon: ConvexPolygonLike) = super.intersections(polygon).filter(_ >= 0)
   override def intersectionPoints(polygon: ConvexPolygonLike) = intersections(polygon).map(apply)
   def firstIntersectionPoint(polygon: ConvexPolygonLike):Option[Vec2] = {
     val is = intersections(polygon)
@@ -66,7 +79,7 @@ case class LineSegment(a:Vec2, b:Vec2) extends LineLike {
 	def midPoint = (a + b) * 0.5
 	def length = dir.length
 
-	override def intersections(polygon: ConvexPolygonLike) = intersections(polygon).filter(d => d >= 0 && d <= 1)
+	override def intersections(polygon: ConvexPolygonLike) = super.intersections(polygon).filter(d => d >= 0 && d <= 1)
   override def intersectionPoints(polygon: ConvexPolygonLike) = intersections(polygon).map(apply)
 
 	def intersects(that: LineSegment) = {
@@ -86,12 +99,22 @@ case class LineSegment(a:Vec2, b:Vec2) extends LineLike {
 			Double.MaxValue
 	}
 
-  def clip(polygon:ConvexPolygonLike):LineSegment = {
-    val is = intersections(polygon).sorted
-    assert( is.size == 0 || is.size == 2 )
-    is match {
-      case List(t1,t2) => LineSegment(apply(t1), apply(t2))
-      case Nil => this
+  def clip(polygon:ConvexPolygonLike):Option[LineSegment] = {
+    if( (polygon inside a) && (polygon inside b) ) // trivial accept
+      Some(this)
+    else {
+      super.intersections(polygon) match {
+        case List(t1,t2) =>
+          if( t1 < 0 && t2 < 0 || t1 > 1 && t2 > 1 ) // trivial reject
+            None
+          else {
+            val tmin = (t1 min t2) max 0
+            val tmax = (t1 max t2) min 1
+            Some(LineSegment(apply(tmin), apply(tmax)))
+          }
+        case Nil =>
+          None
+      }
     }
   }
 }
@@ -101,11 +124,24 @@ trait ConvexPolygonLike extends collection.SeqProxy[Vec2] {
   
   def self = points
   private def rotatedSlidingWindow(n:Int) = (points ::: points.take(n-1)).sliding(n)
-  def edges = rotatedSlidingWindow(2).map{ case List(a,b) => LineSegment(a,b) }.toList
-  def triples = rotatedSlidingWindow(3)
+  private def tuples = rotatedSlidingWindow(2)
+  private def triples = rotatedSlidingWindow(3)
+  def edges = tuples.map{ case List(a,b) => LineSegment(a,b) }.toList
+  private def ccw(a:Vec2, b:Vec2, p: Vec2) = (a.x - p.x) * (b.y - p.y) - (a.y - p.y) * (b.x - p.x) > 0
+  
   require( points.size == points.distinct.size, "No degenerated Polygons allowed:\n%s" format(points) )
   require( points.distinct.size >= 3, "Not enough Points: %d\n%s" format (points.size, points) )
-  require( triples.forall{ case List(a,b,c) => Line(a,b).ccw(c) }, "Points not in ccw order:\n%s\n%s" format (points, points.map(p => {val Vec2(x,y) = (points.head-p); math.atan2(y,x)})))
+  require( triples.forall{ case List(a,b,c) => ccw(a,b,c) }, "Points not in ccw order:\n%s\n%s" format (points, triples.find{ case List(a,b,c) => !ccw(a,b,c) }.get))
+  
+	def inside(p: Vec2) = {
+		  //edges.forall(_ ccw p)
+		  tuples.forall{ case List(a,b) => ccw(a,b,p) }
+	}
+	
+  def smaller(center:Vec2 = points.reduce(_ + _) / points.size, f:Double = 0.9) = {
+    ConvexPolygon(points.map( p => (p - center)*f + center ))
+  }
+
 }
 
 case class ConvexPolygon(points:List[Vec2]) extends ConvexPolygonLike
@@ -123,13 +159,14 @@ object ConvexPolygon {
 
 object Triangle {
 	def fromUnsorted(points: List[Vec2]) = {
+	  assert(points.distinct.size == points.size)
 		points.sorted match {
 			case List(a, b, c) =>
 				if (Line(a, b) ccw c)
 					new Triangle(a, b, c)
 				else
 					new Triangle(a, c, b)
-			case _ => sys.error("Needed 3 Points, given: %s" format points)
+			case _ => sys.error("Needed 3 distinct points:\n%s" format points)
 		}
 	}
 }
@@ -138,6 +175,8 @@ trait TriangleLike extends ConvexPolygonLike {
   def a: Vec2
   def b: Vec2
   def c: Vec2
+  
+  def points = List(a,b,c)
 
 	require(a != b && b != c && c != a,
 		"Two points are the same: %s %s %s" format (a, b, c))
@@ -159,13 +198,6 @@ trait TriangleLike extends ConvexPolygonLike {
 		else if (p == b) angle(a, b, c)
 		else if (p == c) angle(b, c, a)
 		else sys.error("Point %s not in %s" format (p, this))
-	}
-
-	def inside(p: Vec2) = {
-		//TODO: def ccw(p1:Vec2, p2:Vec2, p3:Vec2)
-		Line(a, b).ccw(p) &&
-			Line(b, c).ccw(p) &&
-			Line(c, a).ccw(p)
 	}
 
 	def circumcenter = {

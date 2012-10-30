@@ -33,7 +33,7 @@ case class Branch(_point: Vec2, seed: Int) extends EuclideanVertex(_point) {
 	def y = point.y.toInt
 	var branchType:BranchType = null
 	var id: Int = 0
-	override def toString = "Branch(%d)" format id
+	override def toString = "Branch(%d: %s)" format (id, point)
 }
 
 case class BranchConnection(nA: Branch, nB: Branch) extends EuclideanEdge(nA, nB) {
@@ -224,27 +224,35 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 			drawPolyline(xpoints,ypoints,width)
 		}
 		
+		def drawConvexPolygon(polygon:ConvexPolygonLike, color:Color) {
+      val xpoints = polygon.map(_.x.toInt).toArray
+      val ypoints = polygon.map(_.y.toInt).toArray
+      setColor(color)
+      drawPolygon(xpoints,ypoints,polygon.size)
+		}
+		
 		
 		setBackground(backgroundColor)
 		clearRect(0, 0, width, height)
 		
-		drawNoiseLine(groundLine)
+		//drawNoiseLine(groundLine)
 
 		for (d <- delauny) {
 			drawBranchConnection(d, new Color(0xffe7ce))
 		}
-
-    for( Line(Vec2(x1,y1),Vec2(x2,y2)) <- voronoi(width, height)._2 ) {
+    
+    val bounds = Rectangle(Vec2(100,100), Vec2(width-100, height-100))
+    drawConvexPolygon(bounds, new Color(0xBBBBBB))
+    
+    
+    for( LineSegment(Vec2(x1,y1),Vec2(x2,y2)) <- voronoiDiagram(bounds)._2 ) {
       setColor(new Color(0xBBBBBB))
       drawLine(x1.toInt,y1.toInt,x2.toInt,y2.toInt)
     }
 
-    for( (branch, polygon) <- voronoi(width, height)._1 ) {
-      val smallerPolygon = polygon.map(v => (v - branch.point)*0.9 + branch.point)
-      val xpoints = smallerPolygon.map(_.x.toInt).toArray
-      val ypoints = smallerPolygon.map(_.y.toInt).toArray
-      setColor(branchBoundColor)
-      drawPolygon(xpoints,ypoints,polygon.size)
+    for( (branch, polygon) <- voronoiDiagram(bounds)._1 ) {
+      val smallerPolygon = polygon.smaller(branch.point, 0.9)
+      drawConvexPolygon(smallerPolygon, branchBoundColor)
     }
 
 		
