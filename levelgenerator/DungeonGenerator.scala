@@ -12,6 +12,8 @@ import geometry._
 
 import venture.branchtypes._
 
+import collection.mutable
+
 object Config {
 	val width = 800
 	val height = 600
@@ -24,15 +26,19 @@ object Config {
 	val minBorderDistance = minDistance / 2
 	val edgeProbabilities = Array(0.9, 0.6, 0.3)
 	val minLineBranchDistance = 90 //TODO: statt Pixelabstand, den Winkel vom erzeugten Dreieck limitieren
+	val frameThickness = 10
 	
 	val itemDependencies = branchCount.sum / 3
 }
+
+
 
 case class Branch(_point: Vec2, seed: Int) extends EuclideanVertex(_point) {
 	def x = point.x.toInt
 	def y = point.y.toInt
 	var branchType:BranchType = null
 	var id: Int = 0
+	var bounds:ConvexPolygon = null
 	override def toString = "Branch(%d: %s)" format (id, point)
 }
 
@@ -44,9 +50,41 @@ case class BranchConnection(nA: Branch, nB: Branch) extends EuclideanEdge(nA, nB
 
 case class ItemDependency(branch:Branch, connection:BranchConnection)
 
+
+
+
 class Dungeon(seed: Any) extends EuclideanGraph {
 	import Config._
-
+  
+  import venture.branchGenerator.BranchProperties
+  def toBranchProperties:List[BranchProperties] = {
+    import venture.branchGenerator._
+    val properties = new mutable.ListBuffer[BranchProperties]
+    for( branch <- branches ) {
+      val neighbours = new mutable.ListBuffer[BranchNeighbourInfo]
+      for( neighbourBranch <- branch.neighbours(connections).map(_.asInstanceOf[Branch]) ) {
+        neighbours += BranchNeighbourInfo(
+          branchType = neighbourBranch.branchType,
+          relativePosition = neighbourBranch.point - branch.point,
+          requiredItems = Nil
+        )
+      }
+    
+      properties += BranchProperties(
+        seed = branch.seed,
+        branchType = branch.branchType,
+        difficulty = branch.id,
+        bounds = branch.bounds - branch.point,
+        neighbours = neighbours.toList,
+        requiredItems = Nil,
+        containedItems = Nil
+      )
+    }
+    
+    properties.toList
+  }
+  
+  
 	private val rng = new util.Random(seed.hashCode)
 
 	var skyBranches: List[Branch] = Nil
@@ -115,15 +153,13 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		undergroundBranches ::= newBranch
 	}
 
+  val bounds = Rectangle(Vec2(frameThickness,frameThickness), Vec2(width-frameThickness, height-frameThickness))
+  val voronoi = voronoiDiagram(bounds)
+  for( branch <- branches ) {
+    branch.bounds = voronoi(branch)
+  }
 
-/*	val possibleTransitions = (branches.combinations(2).filter{
-		case List(a,b) => Types.transitions.keys.exists(s => (s contains a.branchType) && (s contains b.branchType) )
-	}).collect{
-		case List(a,b) => BranchConnection(a,b)
-	}*/
-
-
-	val startBranch = randomBranch // choose branch with highest degree?
+	val startBranch = randomBranch // TODO: choose branch with highest degree?
 
 	// base connections (minimum spanning tree on complete graph)
 	connections = minimumSpanningTree map (x => BranchConnection(x.vA.asInstanceOf[Branch], x.vB.asInstanceOf[Branch]))
@@ -160,31 +196,31 @@ class Dungeon(seed: Any) extends EuclideanGraph {
     ItemDependency(branch, candidates(rInt % candidates.size))
   }
   
-  //val delauny:List[BranchConnection] = delaunayEdges.map{ e => BranchConnection(e.vA.asInstanceOf[Branch],e.vB.asInstanceOf[Branch]) }
 
 
 	def drawToImage(filename: String) {
 		import java.io.File
 
 		val backgroundColor = new Color(0xEEEEEE)
-//		val branchColor = new Color(0xCCCCCC)
-		val startColor = new Color(0x00A020)
 		val connectionColor = new Color(0x999999)
 		val contourColor = new Color(0x333333)
 		val lightTextColor = new Color(0xFFFFFF)
 		val darkTextColor = new Color(0x222222)
 		val noiseLineColor = new Color(0x5ea264)
 		val dependencyColor = new Color(0x22df81)
-		val branchBoundColor = new Color(0xDDDDDD)
 		val textFont = new Font("Sans", Font.BOLD, 20)
 		val branchRadius = 20
+		val strokeWidth = 3
+		val antialiasing = true
 
 		val image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
 		val g: Graphics2D = image.createGraphics
 		import g._
-		setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-			RenderingHints.VALUE_ANTIALIAS_ON)
-		setStroke(new java.awt.BasicStroke(3))
+		if( antialiasing ) {
+		  setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+			  RenderingHints.VALUE_ANTIALIAS_ON)
+		}
+		setStroke(new java.awt.BasicStroke(strokeWidth))
 		setFont(textFont)
 		val frc = getFontRenderContext
 		def stringBounds(s: String) = {
@@ -196,6 +232,27 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		def fillCircle(x: Int, y: Int, radius: Int) = fillOval(x - radius, y - radius, radius * 2, radius * 2)
 		def drawCircle(x: Int, y: Int, radius: Int) = drawOval(x - radius, y - radius, radius * 2, radius * 2)
 
+		def drawNoiseLine( f:Int => Int ) {
+			val xpoints = (0 until width).toArray
+			val ypoints = xpoints map f
+			setColor( noiseLineColor )
+			drawPolyline(xpoints,ypoints,width)
+		}
+		
+		def drawConvexPolygon(polygon:ConvexPolygonLike, color:Color) {
+      val xpoints = polygon.map(_.x.toInt).toArray
+      val ypoints = polygon.map(_.y.toInt).toArray
+      setColor(color)
+      drawPolygon(xpoints,ypoints,polygon.size)
+		}
+
+		def fillConvexPolygon(polygon:ConvexPolygonLike, color:Color) {
+      val xpoints = polygon.map(_.x.toInt).toArray
+      val ypoints = polygon.map(_.y.toInt).toArray
+      setColor(color)
+      fillPolygon(xpoints,ypoints,polygon.size)
+		}
+		
 		def drawBranch(branch: Branch, color: Color) = {
 			setColor(color)
 			fillCircle(branch.x, branch.y, branchRadius)
@@ -224,72 +281,36 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 			drawLine(dep.branch.x, dep.branch.y, dep.connection.midPoint.x.toInt, dep.connection.midPoint.y.toInt)
 		}
 
-		def drawNoiseLine( f:Int => Int ) {
-			val xpoints = (0 until width).toArray
-			val ypoints = xpoints map f
-			setColor( noiseLineColor )
-			drawPolyline(xpoints,ypoints,width)
-		}
-		
-		def drawConvexPolygon(polygon:ConvexPolygonLike, color:Color) {
-      val xpoints = polygon.map(_.x.toInt).toArray
-      val ypoints = polygon.map(_.y.toInt).toArray
-      setColor(color)
-      drawPolygon(xpoints,ypoints,polygon.size)
-		}
 
-		def fillConvexPolygon(polygon:ConvexPolygonLike, color:Color) {
-      val xpoints = polygon.map(_.x.toInt).toArray
-      val ypoints = polygon.map(_.y.toInt).toArray
-      setColor(color)
-      fillPolygon(xpoints,ypoints,polygon.size)
-		}
-		
-		
+    // Start drawing
 		setBackground(backgroundColor)
 		clearRect(0, 0, width, height)
 		
+		// Ground line
 		drawNoiseLine(groundLine)
 
-/*		for (d <- delauny) {
-			drawBranchConnection(d, new Color(0xffe7ce))
-		}*/
-    
-    val bounds = Rectangle(Vec2(10,10), Vec2(width-10, height-10))
-    val voronoi = voronoiDiagram(bounds)
-    /*drawConvexPolygon(bounds, new Color(0xBBBBBB))*/
-    
-    
-/*    for( LineSegment(Vec2(x1,y1),Vec2(x2,y2)) <- voronoiDiagram(bounds)._2 ) {
-      setColor(new Color(0xBBBBBB))
-      drawLine(x1.toInt,y1.toInt,x2.toInt,y2.toInt)
-    }*/
-
-    for( (vertex, polygon) <- voronoi ) {
-      val branch = vertex.asInstanceOf[Branch]
-      val smallerPolygon = polygon.smaller(branch.point, 0.9)
+    // Branch cells
+    for( branch <- branches ) {
+      val smallerPolygon = branch.bounds.smaller(branch.point, 0.9)
 			drawBranchPolygon(smallerPolygon, branch.branchType.color)
     }
 
+    // Branch connections
 		for (connection <- connections) {
 			drawBranchConnection(connection, connectionColor)
 		}
 
+    // Item dependencies
     for( dependency <- dependencies ) {
       drawItemDependency(dependency)
     }
 
-    for( (vertex, _) <- voronoi ) {
-      val branch = vertex.asInstanceOf[Branch]
+    // Branch Circles
+    for( branch <- branches ) {
 			drawBranch(branch, branch.branchType.color)
     }
 
-
-		
-/*		for (connection <- possibleTransitions) {
-			drawBranchConnection(connection, connectionColor)
-		}*/
-
+    // Start Branch
 		setColor(contourColor)
 		drawCircle(startBranch.x, startBranch.y, (branchRadius*1.4).toInt)
 
@@ -297,10 +318,6 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		ImageIO.write(image, "png", outputfile)
 	}
 }
-
-
-
-
 
 
 

@@ -141,7 +141,11 @@ trait ConvexPolygonLike extends collection.SeqProxy[Vec2] {
   def smaller(center:Vec2 = points.reduce(_ + _) / points.size, f:Double = 0.9) = {
     ConvexPolygon(points.map( p => (p - center)*f + center ))
   }
-
+  
+  def +(v:Vec2) = ConvexPolygon(points.map(_+v))
+  def -(v:Vec2) = ConvexPolygon(points.map(_-v))
+  
+  override def toString = "ConvexPolygon(%s)" format points.mkString(", ")
 }
 
 case class ConvexPolygon(points:List[Vec2]) extends ConvexPolygonLike
