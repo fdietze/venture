@@ -249,7 +249,7 @@ class Dungeon(seed: Any) extends EuclideanGraph {
 		setBackground(backgroundColor)
 		clearRect(0, 0, width, height)
 		
-		//drawNoiseLine(groundLine)
+		drawNoiseLine(groundLine)
 
 /*		for (d <- delauny) {
 			drawBranchConnection(d, new Color(0xffe7ce))
