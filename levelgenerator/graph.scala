@@ -242,7 +242,7 @@ trait EuclideanGraph extends Graph {
 
 
     
-    val lines = connectedTriangles.flatMap{ case List(tA,tB) =>
+/*    val lines = connectedTriangles.flatMap{ case List(tA,tB) =>
       LineSegment(tA.circumcenter,tB.circumcenter).clip(bounds)
     }
     
@@ -261,6 +261,7 @@ trait EuclideanGraph extends Graph {
     })
     
     
-    (polygons, lines ++ infinityLines)
+    (polygons, lines ++ infinityLines)*/
+    polygons
   }
 }
