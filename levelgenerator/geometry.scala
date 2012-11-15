@@ -19,7 +19,7 @@ case class Vec2(x: Double, y: Double) extends Ordered[Vec2] {
 	def length = sqrt(x * x + y * y)
 	def normalized = this / length
 	
-  def trunced = (math.round(x*1000)*0.001, math.round(y*1000)*0.001)
+  lazy val trunced = (math.round(x*1000)*0.001, math.round(y*1000)*0.001)
 	
 	override def equals(other:Any) = {
 	  other match {
@@ -212,7 +212,7 @@ trait TriangleLike extends ConvexPolygonLike {
 	}
 }
 
-case class Triangle(a:Vec2, b:Vec2, c:Vec2)
+case class Triangle(a:Vec2, b:Vec2, c:Vec2) extends TriangleLike
 
 case class Rectangle(a:Vec2, b:Vec2) extends ConvexPolygonLike {
   def c = Vec2(b.x,a.y)

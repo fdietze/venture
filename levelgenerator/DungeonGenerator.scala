@@ -28,7 +28,7 @@ object Config {
 	val minLineBranchDistance = 90 //TODO: statt Pixelabstand, den Winkel vom erzeugten Dreieck limitieren
 	val frameThickness = 10
 	
-	val itemDependencies = branchCount.sum / 3
+	val itemDependencies = 0 //branchCount.sum / 3
 }
 
 
